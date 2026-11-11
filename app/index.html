@@ -1,0 +1,769 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ELIX</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#050b14; --panel:#0b1626; --line:#17304a; --ice:#d9f4ff; --mute:#7a95ad;
+    --cy:#4fd8ff; --amber:#ffb347; --err:#ff8a8a; --hi:#fff;
+    --font:'Rajdhani','Segoe UI',system-ui,sans-serif;
+    color-scheme:dark; box-sizing:border-box;
+    padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  body[data-state=acting]{--cy:var(--amber)}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{background:radial-gradient(ellipse at 50% 26%,#0c2036 0,var(--ink) 62%);color:var(--ice);font:500 18px/1.4 var(--font);display:flex;flex-direction:column;align-items:center;overflow:hidden}
+  header{width:100%;max-width:760px;display:flex;justify-content:space-between;align-items:baseline;padding:16px 20px 0}
+  h1{margin:0;font-weight:600;font-size:22px;letter-spacing:.32em;color:var(--cy)}
+  #status{color:var(--mute);font-size:16px}
+
+  .orb{width:min(36vmin,280px);aspect-ratio:1;position:relative;margin:2vh 0;display:grid;place-items:center;cursor:pointer;border-radius:50%;flex:none;border:0;background:none;padding:0}
+  .orb:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--cy);outline-offset:3px}
+  .ring{position:absolute;border-radius:50%}
+  .r1{inset:0;border:2px solid transparent;border-top-color:var(--cy);border-bottom-color:var(--cy);animation:spin 10s linear infinite}
+  .r2{inset:11%;border:2px dashed color-mix(in srgb,var(--cy) 55%,transparent);animation:spin 22s linear infinite reverse}
+  .r3{inset:23%;border:4px solid transparent;border-left-color:var(--cy);border-right-color:var(--cy);animation:spin 6s linear infinite}
+  .core{width:32%;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,var(--hi) 0,var(--ice) 22%,var(--cy) 58%,transparent 72%);box-shadow:0 0 50px var(--cy);animation:breathe 4s ease-in-out infinite}
+  body[data-state=listening] .core{animation-duration:2.4s}
+  body[data-state=thinking] .r1{animation-duration:2s}
+  body[data-state=thinking] .r3{animation-duration:1.2s}
+  body[data-state=speaking] .core{animation:talk .5s ease-in-out infinite}
+  body[data-state=acting] .r2{animation-duration:3s}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes breathe{50%{transform:scale(1.12);opacity:.85}}
+  @keyframes talk{0%,100%{transform:scale(1)}50%{transform:scale(1.28)}}
+  @media (prefers-reduced-motion:reduce){.ring,.core{animation:none!important}}
+
+  #log{width:100%;max-width:760px;flex:1;min-height:0;overflow-y:auto;padding:8px 20px;display:flex;flex-direction:column;gap:10px}
+  .line{max-width:88%;padding:9px 14px;border-radius:12px;background:var(--panel);border:1px solid var(--line);overflow-wrap:anywhere}
+  .line.user{align-self:flex-end;color:var(--mute)}
+  .line.jarvis{align-self:flex-start;border-color:color-mix(in srgb,var(--cy) 45%,var(--line))}
+  .line.error{align-self:center;color:var(--err);border-color:var(--err);font-size:16px}
+  .chip{align-self:flex-start;max-width:100%;font-size:15px;color:var(--amber);padding:2px 10px;border:1px solid color-mix(in srgb,var(--amber) 40%,transparent);border-radius:20px;overflow-wrap:anywhere}
+  a.chip{text-decoration:underline}
+  .chip.sim{color:var(--mute);border-color:var(--line)}
+  #lvl{width:min(60vw,260px);height:4px;background:var(--line);border-radius:4px;overflow:hidden;margin:-4px 0 8px;opacity:0;transition:opacity .2s;flex:none}
+  #lvl.on{opacity:1}
+  #lvl i{display:block;height:100%;width:0;background:var(--cy)}
+  #player{width:min(92vw,440px);flex:none;margin:0 0 8px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#000}
+  #player[hidden]{display:none}
+  .phead{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:4px 10px;background:var(--panel);font-size:15px}
+  #ptitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mute)}
+  #yt{display:block;width:100%;aspect-ratio:16/9;border:0}
+  body.playing .orb{width:min(16vmin,110px);margin:1vh 0}
+  #interim{min-height:24px;color:var(--mute);font-style:italic;text-align:center;font-size:16px;padding:0 20px}
+
+  form{width:100%;max-width:760px;display:flex;gap:10px;padding:6px 20px 8px}
+  input[type=text]{flex:1;min-width:0;background:var(--panel);color:var(--ice);border:1px solid var(--line);border-radius:10px;padding:11px 14px;font:inherit}
+  button.btn{background:var(--panel);color:var(--ice);border:1px solid var(--line);border-radius:10px;padding:0 18px;font:600 17px var(--font);cursor:pointer}
+  button.btn:hover{border-color:var(--cy)}
+  #mic[aria-pressed=true]{background:var(--cy);color:var(--ink);border-color:var(--cy)}
+  .opts{width:100%;max-width:760px;display:flex;flex-wrap:wrap;gap:6px 18px;padding:0 20px 14px;color:var(--mute);font-size:15px;align-items:center}
+  .opts label{display:flex;gap:6px;align-items:center}
+  .mini{background:var(--panel);color:var(--ice);border:1px solid var(--line);border-radius:8px;padding:4px 8px;font:inherit;font-size:15px;flex:none}
+  select{background:var(--panel);color:var(--ice);border:1px solid var(--line);border-radius:8px;padding:4px 6px;font:inherit;font-size:15px;max-width:220px}
+</style>
+</head>
+<body data-state="idle">
+<header><h1>ELIX</h1><span id="status" aria-live="polite">En espera</span></header>
+
+<button class="orb" id="orb" aria-label="Interrumpir a ELIX">
+  <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span><span class="core"></span>
+</button>
+
+<div id="lvl" aria-hidden="true"><i></i></div>
+<div id="player" hidden>
+  <div class="phead"><span id="ptitle"></span><button type="button" class="btn" id="pclose" style="padding:2px 12px">Cerrar</button></div>
+  <iframe id="yt" title="Reproductor de YouTube" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+</div>
+<div id="log" aria-live="polite"></div>
+<div id="interim"></div>
+
+<form id="form" autocomplete="off">
+  <button type="button" class="btn" id="mic" aria-pressed="false">Activar voz</button>
+  <input type="text" id="text" placeholder="Escribe o activa la voz" aria-label="Mensaje">
+  <button class="btn" type="submit">Enviar</button>
+</form>
+<div class="opts">
+  <label><input type="checkbox" id="wake"> Solo si digo “Elix”</label>
+  <label><input type="checkbox" id="mute"> Sin voz</label>
+  <label><input type="checkbox" id="gemear"> Oído con Gemini</label>
+  <label>Cerebro
+    <select id="prov" aria-label="Proveedor del cerebro">
+      <option value="gemini">Gemini (gratis)</option>
+      <option value="custom">Otro (compatible OpenAI)</option>
+    </select>
+  </label>
+  <label>Clave <input type="password" id="key" placeholder="pega tu clave" autocomplete="off" aria-label="Clave de API" class="mini" style="width:150px"></label>
+  <label>Modelo <input type="text" id="model" aria-label="Modelo" class="mini" style="width:150px"></label>
+  <label id="urlRow" hidden>URL <input type="text" id="url" placeholder="http://localhost:11434/v1" aria-label="URL base" class="mini" style="width:200px"></label>
+  <label>Motor de voz <select id="tts" aria-label="Motor de voz"><option value="gemini">Gemini (natural)</option><option value="browser">Navegador</option></select></label>
+  <label>Voz Gemini <select id="gvoice" aria-label="Voz de Gemini"><option>Kore</option><option>Aoede</option><option>Zephyr</option><option>Puck</option><option>Charon</option><option>Fenrir</option><option>Orus</option></select></label>
+  <label>Voz del navegador <select id="voice" aria-label="Voz del navegador"></select></label>
+  <label>Clave YouTube <input type="password" id="ykey" placeholder="opcional" autocomplete="off" aria-label="Clave de YouTube (opcional)" class="mini" style="width:120px"></label>
+  <label>Reproducir en <select id="ydest" aria-label="Dónde reproducir los videos"><option value="pagina">Esta página</option><option value="ventana">Pestaña nueva de YouTube</option></select></label>
+  <label>Velocidad <input type="range" id="rate" min="0.8" max="1.3" step="0.05" value="1.05"></label>
+</div>
+
+<script>
+/* =====================================================================
+   ELIX — versión web de pruebas
+   Capas (pensadas para pasar a .exe sin reescribir):
+   1) Oído/voz:   Web Speech (o dictation si corre dentro de Claude) + speechSynthesis
+   2) Cerebro:    API compatible con OpenAI (Gemini gratis, Ollama, etc.); clave solo en tu navegador
+   3) Acciones:   TOOLS_WEB (funcionan en el navegador) y TOOLS_NATIVE
+                  (acciones de PC). En el .exe, window.jarvisNative las
+                  implementa; en la web devuelven un aviso de "simulada".
+   ===================================================================== */
+const $ = (s) => document.querySelector(s);
+const store = {
+  get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
+};
+let history = [], listening = false, busy = false, speaking = false, sampler = null;
+
+function setState(s, label) { document.body.dataset.state = s; $('#status').textContent = label; }
+function addEl(cls, text, href) {
+  const d = document.createElement(href ? 'a' : 'div');
+  d.className = cls; d.textContent = text;
+  if (href) { d.href = href; d.target = '_blank'; d.rel = 'noopener noreferrer'; }
+  $('#log').appendChild(d); $('#log').scrollTop = 1e9;
+}
+const addLine = (role, text) => addEl('line ' + role, text);
+const whenFree = (fn) => (busy || speaking) ? setTimeout(() => whenFree(fn), 1500) : fn();
+
+/* ---------- Voz de salida ---------- */
+let voices = [];
+function loadVoices() {
+  if (!window.speechSynthesis) return;
+  voices = speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith('es'));
+  voices.sort((a, b) => /natural|online/i.test(b.name) - /natural|online/i.test(a.name));
+  const sel = $('#voice'), saved = store.get('voice', '');
+  sel.innerHTML = '';
+  voices.forEach((v) => sel.add(new Option(v.name, v.name)));
+  if (voices.some((v) => v.name === saved)) sel.value = saved;
+}
+loadVoices();
+if (window.speechSynthesis) speechSynthesis.onvoiceschanged = loadVoices;
+$('#voice').onchange = (e) => store.set('voice', e.target.value);
+$('#wake').checked = store.get('wake', '') === '1';
+$('#wake').onchange = (e) => store.set('wake', e.target.checked ? '1' : '');
+
+function speakBrowser(text) {
+  return new Promise((resolve) => {
+    if (!text || $('#mute').checked || !window.speechSynthesis) return resolve();
+    speechSynthesis.cancel();
+    const parts = (text.match(/[^.!?…]+[.!?…]*\s*/g) || [text]).map((p) => p.trim()).filter(Boolean);
+    speaking = true; setState('speaking', 'Hablando');
+    let i = 0;
+    const next = () => {
+      if (i >= parts.length || !speaking) { speaking = false; return resolve(); }
+      const u = new SpeechSynthesisUtterance(parts[i++]);
+      const v = voices.find((x) => x.name === $('#voice').value) || voices[0];
+      if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'es-ES';
+      u.rate = +$('#rate').value;
+      u.onend = next; u.onerror = next;
+      speechSynthesis.speak(u);
+    };
+    next();
+  });
+}
+const TTS_MODEL = 'gemini-2.5-flash-preview-tts';
+let ttsCool = 0, ttsSrc = null, ttsCtx = null;
+$('#tts').value = store.get('jarvis:tts', 'gemini');
+$('#tts').onchange = (e) => store.set('jarvis:tts', e.target.value);
+$('#gvoice').value = store.get('jarvis:gvoice', 'Kore');
+$('#gvoice').onchange = (e) => store.set('jarvis:gvoice', e.target.value);
+$('#ykey').value = store.get('jarvis:ykey', '');
+$('#ykey').onchange = (e) => store.set('jarvis:ykey', e.target.value.trim());
+$('#ydest').value = store.get('jarvis:ydest', 'pagina');
+$('#ydest').onchange = (e) => store.set('jarvis:ydest', e.target.value);
+
+function stopSpeaking() {
+  speaking = false;
+  try { speechSynthesis.cancel(); } catch {}
+  try { ttsSrc && ttsSrc.stop(); } catch {}
+}
+$('#orb').onclick = () => { if (speaking) stopSpeaking(); };
+
+async function speakGemini(text) {
+  const c = cfg();
+  if (!c.key || c.prov !== 'gemini') return false;
+  speaking = true; setState('thinking', 'Preparando voz');
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + TTS_MODEL + ':generateContent', {
+      method: 'POST', signal: ctl.signal,
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': c.key },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: 'Di de forma natural, cálida y tranquila, en español latinoamericano: ' + text }] }],
+        generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: $('#gvoice').value } } } },
+      }),
+    });
+    if (!r.ok) { ttsCool = Date.now() + ((r.status === 429 || r.status >= 500) ? 60000 : 600000); return false; }
+    const d = await r.json();
+    const part = (d.candidates?.[0]?.content?.parts || []).find((x) => x.inlineData);
+    if (!part) { ttsCool = Date.now() + 60000; return false; }
+    if (!speaking) return true; // lo interrumpieron mientras se generaba
+    const rate = +((part.inlineData.mimeType || '').match(/rate=(\d+)/)?.[1] || 24000);
+    const bin = atob(part.inlineData.data), n = bin.length >> 1, f = new Float32Array(n);
+    for (let i = 0; i < n; i++) { let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8); if (v >= 0x8000) v -= 0x10000; f[i] = v / 32768; }
+    ttsCtx = ttsCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (ttsCtx.state === 'suspended') await ttsCtx.resume();
+    const buf = ttsCtx.createBuffer(1, n, rate); buf.copyToChannel(f, 0);
+    setState('speaking', 'Hablando');
+    await new Promise((res) => { const src = ttsCtx.createBufferSource(); src.buffer = buf; src.connect(ttsCtx.destination); src.onended = res; ttsSrc = src; src.start(); });
+    return true;
+  } catch { ttsCool = Date.now() + 30000; return false; }
+  finally { clearTimeout(timer); ttsSrc = null; }
+}
+async function speak(text) {
+  if (!text || $('#mute').checked) return;
+  if ($('#tts').value === 'gemini' && text.length > 12 && Date.now() > ttsCool) {
+    const ok = await speakGemini(text);
+    speaking = false;
+    if (ok) return;
+  }
+  return speakBrowser(text);
+}
+
+/* ---------- Oído (dictation de Claude, o Web Speech como respaldo) ---------- */
+const ear = {
+  d: null, r: null, gem: store.get('jarvis:ear', '') === '1',
+  async init() {
+    try { this.d = window.claude?.use ? await claude.use('dictation') : null; } catch { this.d = null; }
+    if (this.d) {
+      this.d.onPartial(({ text }) => { $('#interim').textContent = text; });
+      this.d.onFinal(({ text }) => { $('#interim').textContent = ''; onFinal(text.trim()); });
+      this.d.onState(({ state }) => {
+        if (state === 'idle' && listening && !busy && !speaking) setTimeout(() => this.start(), 300);
+      });
+      return;
+    }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { this.gem = true; $('#gemear').checked = true; return; }
+    const r = this.r = new SR();
+    r.lang = 'es-419'; r.interimResults = true; r.continuous = false;
+    r.onresult = (e) => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const x = e.results[i];
+        if (x.isFinal) onFinal(x[0].transcript.trim()); else interim += x[0].transcript;
+      }
+      $('#interim').textContent = interim;
+    };
+    r.onend = () => { $('#interim').textContent = ''; if (listening && !busy && !speaking) setTimeout(() => this.start(), 250); };
+    r.onspeechstart = () => setState('listening', 'Te escucho');
+    r.onerror = (e) => {
+      const err = e.error;
+      if (err === 'no-speech' || err === 'aborted') return;
+      if (err === 'not-allowed' || err === 'service-not-allowed') return this.denied();
+      if (err === 'language-not-supported') { r.lang = 'es-ES'; return; }
+      if (err === 'network') {
+        this.gem = true; store.set('jarvis:ear', '1'); $('#gemear').checked = true;
+        addEl('chip sim', 'El reconocimiento del navegador no conectó. Paso a escuchar con Gemini (gratis).');
+        if (listening) { startMeter(); this.start(); }
+        return;
+      }
+      listening = false; updateMic(); stopMeter(); setState('idle', 'En espera');
+      addLine('error', err === 'audio-capture'
+        ? 'El navegador no encuentra un micrófono que pueda usar. Revisa la entrada de sonido de Windows.'
+        : 'Falló el reconocimiento de voz (' + err + ').');
+    };
+  },
+  denied() {
+    listening = false; updateMic(); setState('idle', 'En espera');
+    addLine('error', 'No hay permiso de micrófono. Puedes escribir mientras tanto.');
+  },
+  start() {
+    if (!listening || busy || speaking) return;
+    setState('listening', 'Escuchando');
+    if (this.gem) { startMeter(); return; }
+    if (this.d) return this.d.start().catch((e) => {
+      if (e && e.code === 'not_granted') this.denied();
+      else { listening = false; updateMic(); setState('idle', 'Toca el micrófono para hablar'); }
+    });
+    try { this.r && this.r.start(); } catch {}
+  },
+  stop() {
+    if (this.d) return this.d.stop().catch(() => {});
+    try { this.r && this.r.abort(); } catch {}
+  },
+};
+function updateMic() {
+  $('#mic').setAttribute('aria-pressed', listening);
+  $('#mic').textContent = listening ? 'Voz activa' : 'Activar voz';
+}
+function afterTurn() {
+  if (listening) ear.start(); else setState('idle', 'En espera');
+}
+function onFinal(text) {
+  if (!text) return;
+  if ($('#wake').checked) {
+    const m = text.match(/^(?:oye |hey |ok )?(?:[eé]lix|[eé]lics|[eé]lis|[eé]liks|helix|helics|[eé]lyx)\b[,.!¡¿ ]*(.*)$/i);
+    if (!m) return;
+    text = m[1].trim();
+    if (!text) { ear.stop(); speak('Dime.').then(afterTurn); return; }
+  }
+  send(text);
+}
+$('#mic').onclick = () => {
+  listening = !listening; updateMic();
+  if (listening) { ear.start(); startMeter(); } else { ear.stop(); stopMeter(); setState('idle', 'En espera'); }
+};
+
+let meter = null, meterBusy = false;
+const GEM = { rec: false, working: false, buf: [], pre: [], silence: 0, len: 0, noise: 0, calib: 0, thr: 0.02 };
+function gemReset() { GEM.rec = false; GEM.buf = []; GEM.pre = []; GEM.silence = 0; GEM.len = 0; }
+
+async function startMeter() {
+  if (meter || meterBusy || !navigator.mediaDevices) return;
+  meterBusy = true;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = ctx.createMediaStreamSource(stream);
+    const an = ctx.createAnalyser(); an.fftSize = 512; src.connect(an);
+    const proc = ctx.createScriptProcessor(4096, 1, 1), mute = ctx.createGain();
+    mute.gain.value = 0; src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+    proc.onaudioprocess = (e) => { if (ear.gem) gemChunk(new Float32Array(e.inputBuffer.getChannelData(0)), ctx.sampleRate); };
+    GEM.calib = 0; GEM.noise = 0; gemReset();
+    const buf = new Uint8Array(an.fftSize), bar = $('#lvl i');
+    $('#lvl').classList.add('on');
+    let raf;
+    const tick = () => {
+      an.getByteTimeDomainData(buf);
+      let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v - 128));
+      bar.style.width = Math.min(100, m * 1.6) + '%';
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    meter = { stop() { cancelAnimationFrame(raf); proc.onaudioprocess = null; stream.getTracks().forEach((t) => t.stop()); ctx.close(); $('#lvl').classList.remove('on'); } };
+  } catch (e) {
+    addLine('error', 'No pude abrir el micrófono (' + (e.name || 'error') + '). Revisa el permiso del sitio y que Windows permita el micrófono a las aplicaciones.');
+  }
+  meterBusy = false;
+}
+function stopMeter() { if (meter) meter.stop(); meter = null; }
+
+function gemChunk(chunk, sr) {
+  if (busy || speaking || !listening || GEM.working) { if (GEM.rec) gemReset(); return; }
+  let sum = 0; for (const v of chunk) sum += v * v;
+  const rms = Math.sqrt(sum / chunk.length), dur = chunk.length / sr;
+  if (GEM.calib < 8) { GEM.noise = (GEM.noise * GEM.calib + rms) / (GEM.calib + 1); GEM.calib++; GEM.thr = Math.max(0.015, GEM.noise * 3); return; }
+  if (!GEM.rec) {
+    GEM.pre.push(chunk); if (GEM.pre.length > 3) GEM.pre.shift();
+    if (rms > GEM.thr) { GEM.rec = true; GEM.buf = [...GEM.pre]; GEM.pre = []; GEM.silence = 0; GEM.len = 0; setState('listening', 'Te escucho'); }
+    return;
+  }
+  GEM.buf.push(chunk); GEM.len += dur;
+  if (rms < GEM.thr * 0.6) GEM.silence += dur; else GEM.silence = 0;
+  if (GEM.silence > 1.0 || GEM.len > 20) { const b = GEM.buf; gemReset(); gemFinish(b, sr); }
+}
+function downsample(f32, sr, target = 16000) {
+  const ratio = sr / target, n = Math.floor(f32.length / ratio), out = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const a = Math.floor(i * ratio), b = Math.min(f32.length, Math.floor((i + 1) * ratio));
+    let t = 0; for (let j = a; j < b; j++) t += f32[j];
+    out[i] = t / Math.max(1, b - a);
+  }
+  return out;
+}
+function toWav(f, sr) {
+  const n = f.length, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const w = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) { const x = Math.max(-1, Math.min(1, f[i])); v.setInt16(44 + i * 2, x < 0 ? x * 0x8000 : x * 0x7fff, true); }
+  return new Uint8Array(buf);
+}
+function b64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s); }
+
+async function transcribe(wavB64) {
+  const c = cfg();
+  if (c.prov === 'gemini' && !c.key) throw { message: 'Falta la clave de Gemini para escuchar con Gemini.' };
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 20000);
+  const headers = { 'content-type': 'application/json' };
+  if (c.key) headers.authorization = 'Bearer ' + c.key;
+  try {
+    const r = await fetch(c.base + '/chat/completions', {
+      method: 'POST', headers, signal: ctl.signal,
+      body: JSON.stringify({
+        model: c.prov === 'gemini' ? 'gemini-flash-lite-latest' : c.model, max_tokens: 300,
+        messages: [{ role: 'user', content: [
+          { type: 'text', text: 'Transcribe literalmente, en español, lo que se dice en este audio. El asistente se llama Elix: si oyes algo parecido (Elis, Helix, Elics), escribe Elix. Responde solo con la transcripción, sin comillas ni comentarios. Si no hay voz humana clara, responde únicamente con un punto.' },
+          { type: 'input_audio', input_audio: { data: wavB64, format: 'wav' } },
+        ] }],
+      }),
+    });
+    let d = {}; try { d = await r.json(); } catch {}
+    if (!r.ok) throw { message: (r.status === 429 || r.status === 503) ? 'Gemini está saturado al transcribir. Inténtalo de nuevo.' : `Error ${r.status} al transcribir. ${(Array.isArray(d) ? d[0] : d)?.error?.message || ''}`.trim() };
+    const t = (d.choices?.[0]?.message?.content || '').replace(/^["“”]+|["“”]+$/g, '').trim();
+    return t.length > 1 ? t : '';
+  } catch (e) {
+    if (e.name === 'AbortError') throw { message: 'La transcripción tardó demasiado.' };
+    throw e;
+  } finally { clearTimeout(timer); }
+}
+async function gemFinish(chunks, sr) {
+  const total = chunks.reduce((a, c) => a + c.length, 0);
+  if (total / sr < 0.5) { setState('listening', 'Escuchando'); return; }
+  GEM.working = true; setState('thinking', 'Transcribiendo');
+  let text = '';
+  try {
+    const all = new Float32Array(total); let o = 0;
+    for (const c of chunks) { all.set(c, o); o += c.length; }
+    text = await transcribe(b64(toWav(downsample(all, sr), 16000)));
+  } catch (e) { addLine('error', e.message || 'No pude transcribir el audio.'); }
+  GEM.working = false;
+  if (text) onFinal(text);
+  if (!busy && !speaking) setState('listening', 'Escuchando');
+}
+$('#gemear').checked = ear.gem;
+$('#gemear').onchange = (e) => {
+  ear.gem = e.target.checked; store.set('jarvis:ear', ear.gem ? '1' : '');
+  try { ear.r && ear.r.abort(); } catch {}
+  if (listening) ear.start();
+};
+
+/* ---------- Acciones ---------- */
+const COLORS = { cian: '#4fd8ff', azul: '#5b8cff', verde: '#5dffa4', rojo: '#ff5d6c', morado: '#b48cff', naranja: '#ff9b4f', rosa: '#ff7ac8', amarillo: '#ffe14f', blanco: '#f2f8ff' };
+const SITES = {
+  google: (q) => 'https://www.google.com/search?q=' + encodeURIComponent(q),
+  youtube: (q) => 'https://www.youtube.com/results?search_query=' + encodeURIComponent(q),
+  maps: (q) => 'https://www.google.com/maps/search/' + encodeURIComponent(q),
+  wikipedia: (q) => 'https://es.wikipedia.org/w/index.php?search=' + encodeURIComponent(q),
+};
+function beep(times = 3) {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    for (let i = 0; i < times; i++) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.frequency.value = 880; o.connect(g); g.connect(ctx.destination);
+      const t = ctx.currentTime + i * 0.35;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.3, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.25);
+      o.start(t); o.stop(t + 0.3);
+    }
+  } catch {}
+}
+function openLink(url, label) {
+  if (!/^https?:\/\//i.test(url)) return 'URL no válida: debe empezar con http:// o https://';
+  try { window.open(url, '_blank', 'noopener,noreferrer'); } catch {}
+  addEl('chip', 'Abrir: ' + label, url);
+  return 'Enlace preparado. Si el navegador bloqueó la ventana, el usuario puede pulsar el enlace que aparece en pantalla.';
+}
+const notes = () => { try { return JSON.parse(store.get('jarvis:notas', '[]')); } catch { return []; } };
+
+const str = (d) => ({ type: 'string', description: d });
+const TOOLS_WEB = [
+  { name: 'hora_y_fecha', description: 'Devuelve la fecha y hora actuales del usuario.', inputSchema: { type: 'object', properties: {} },
+    execute: () => new Date().toLocaleString('es', { dateStyle: 'full', timeStyle: 'medium' }) },
+  { name: 'abrir_web', description: 'Abre una página web (URL completa http/https).',
+    inputSchema: { type: 'object', properties: { url: str('URL completa') }, required: ['url'] },
+    execute: ({ url }) => openLink(url, url) },
+  { name: 'buscar', description: 'Abre una búsqueda en google, youtube, maps o wikipedia en una pestaña nueva. Para poner música o videos usa reproducir_youtube.',
+    inputSchema: { type: 'object', properties: { consulta: str('Qué buscar'), sitio: { type: 'string', enum: Object.keys(SITES) } }, required: ['consulta'] },
+    execute: ({ consulta, sitio = 'google' }) => openLink((SITES[sitio] || SITES.google)(consulta), `${sitio}: ${consulta}`) },
+  { name: 'temporizador', description: 'Pone un temporizador o recordatorio que sonará y avisará en voz alta.',
+    inputSchema: { type: 'object', properties: { segundos: { type: 'integer', minimum: 1, maximum: 86400 }, etiqueta: str('Para qué es') }, required: ['segundos'] },
+    execute: ({ segundos, etiqueta = 'Tiempo cumplido' }) => {
+      setTimeout(() => { beep(); addEl('chip', 'Temporizador: ' + etiqueta); whenFree(() => speak(etiqueta + '. Se cumplió el tiempo.')); }, segundos * 1000);
+      return `Temporizador en marcha: ${segundos} segundos (${etiqueta}). Solo suena mientras esta página siga abierta.`;
+    } },
+  { name: 'crear_nota', description: 'Guarda una nota en este navegador.',
+    inputSchema: { type: 'object', properties: { titulo: str('Título corto'), contenido: str('Texto') }, required: ['titulo', 'contenido'] },
+    execute: ({ titulo, contenido }) => {
+      const n = notes(); n.push({ titulo, contenido, fecha: new Date().toISOString() });
+      store.set('jarvis:notas', JSON.stringify(n.slice(-100))); return `Nota guardada: ${titulo}`;
+    } },
+  { name: 'leer_notas', description: 'Devuelve las notas guardadas (las últimas 20).',
+    inputSchema: { type: 'object', properties: {} },
+    execute: () => JSON.stringify(notes().slice(-20)) },
+  { name: 'calcular', description: 'Calcula una expresión matemática (+ - * / ^ % y paréntesis).',
+    inputSchema: { type: 'object', properties: { expresion: str('Ejemplo: (12.5*4)/3') }, required: ['expresion'] },
+    execute: ({ expresion }) => {
+      const e = String(expresion).replace(/,/g, '.').replace(/\^/g, '**');
+      if (!/^[\d+\-*/().%\s]+$/.test(e)) return 'Expresión no permitida';
+      try { return String(Function('"use strict";return (' + e + ')')()); } catch { return 'No pude calcularlo'; }
+    } },
+  { name: 'cambiar_color_orbe', description: 'Cambia el color de la interfaz: ' + Object.keys(COLORS).join(', ') + '.',
+    inputSchema: { type: 'object', properties: { color: { type: 'string', enum: Object.keys(COLORS) } }, required: ['color'] },
+    execute: ({ color }) => { const c = COLORS[color]; if (!c) return 'Color desconocido'; document.documentElement.style.setProperty('--cy', c); return 'Color cambiado a ' + color; } },
+  { name: 'copiar_al_portapapeles', description: 'Copia un texto al portapapeles.',
+    inputSchema: { type: 'object', properties: { texto: str('Texto a copiar') }, required: ['texto'] },
+    execute: async ({ texto }) => { try { await navigator.clipboard.writeText(texto); return 'Copiado'; } catch { return 'El navegador no permitió copiar'; } } },
+  { name: 'estado_del_dispositivo', description: 'Batería, conexión, idioma y tamaño de pantalla de este navegador.',
+    inputSchema: { type: 'object', properties: {} },
+    execute: async () => {
+      let bat = 'no disponible';
+      try { const b = await navigator.getBattery(); bat = Math.round(b.level * 100) + '%' + (b.charging ? ' (cargando)' : ''); } catch {}
+      return JSON.stringify({ bateria: bat, en_linea: navigator.onLine, idioma: navigator.language, pantalla: `${screen.width}x${screen.height}` });
+    } },
+];
+
+/* ---------- YouTube dentro de la página ---------- */
+const YT = { list: [], i: 0, vol: 100, warned: false, ext: false };
+const decodeHtml = (t) => { const x = document.createElement('textarea'); x.innerHTML = t; return x.value; };
+function ytCmd(func, args = []) {
+  try { $('#yt').contentWindow.postMessage(JSON.stringify({ event: 'command', func, args }), '*'); } catch {}
+}
+function ytPlay(i) {
+  const v = YT.list[i]; if (!v) return false;
+  YT.i = i; YT.vol = 100; YT.ext = false;
+  $('#yt').src = 'https://www.youtube.com/embed/' + v.id + '?autoplay=1&playsinline=1&rel=0&enablejsapi=1&origin=' + encodeURIComponent(location.origin);
+  $('#ptitle').textContent = v.title; $('#player').hidden = false; document.body.classList.add('playing');
+  return true;
+}
+function ytClose() { $('#yt').src = 'about:blank'; $('#player').hidden = true; document.body.classList.remove('playing'); YT.list = []; YT.ext = false; }
+$('#pclose').onclick = ytClose;
+function ytOpenWindow(i) {
+  const v = YT.list[i]; if (!v) return 'No hay más resultados.';
+  YT.i = i; YT.ext = true;
+  if (!$('#player').hidden) { $('#yt').src = 'about:blank'; $('#player').hidden = true; document.body.classList.remove('playing'); }
+  const url = 'https://www.youtube.com/watch?v=' + v.id + '&autoplay=1';
+  let w = null;
+  try { w = window.open(url, '_blank'); if (w) w.opener = null; } catch {}
+  addEl('chip', 'Abrir en YouTube: ' + v.title, url);
+  return w
+    ? `Abrí "${v.title}" de ${v.canal} en una pestaña nueva de YouTube.`
+    : `El navegador bloqueó la ventana nueva. Dile al usuario que permita las ventanas emergentes de este sitio (icono en la barra de direcciones) o que pulse el enlace que apareció en pantalla para ver "${v.title}".`;
+}
+async function ytSearch(q) {
+  const key = $('#ykey').value.trim() || cfg().key;
+  if (!key) throw new Error('sin_clave');
+  const r = await fetch('https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=5&q=' +
+    encodeURIComponent(q) + '&key=' + encodeURIComponent(key));
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error('api_' + r.status + ' ' + (d.error?.message || ''));
+  return (d.items || []).filter((x) => x.id?.videoId).map((x) => ({ id: x.id.videoId, title: decodeHtml(x.snippet.title), canal: decodeHtml(x.snippet.channelTitle) }));
+}
+TOOLS_WEB.push(
+  { name: 'reproducir_youtube', description: 'Busca en YouTube y reproduce el primer resultado dentro de esta página (música, videos, canciones). Úsala cuando pidan poner o reproducir algo.',
+    inputSchema: { type: 'object', properties: { consulta: str('Qué reproducir, por ejemplo: canción y artista'), destino: { type: 'string', enum: ['pagina', 'ventana'], description: 'Dónde reproducirlo. Usa ventana si el usuario pide abrir YouTube en una ventana o pestaña nueva; si no dice nada, omítelo.' } }, required: ['consulta'] },
+    execute: async ({ consulta, destino }) => {
+      try {
+        const list = await ytSearch(consulta);
+        if (!list.length) return 'No encontré resultados reproducibles para esa búsqueda.';
+        YT.list = list;
+        if ((destino || $('#ydest').value) === 'ventana') return ytOpenWindow(0);
+        ytPlay(0);
+        return `Reproduciendo "${list[0].title}" de ${list[0].canal}. Otros resultados disponibles con "siguiente": ${list.slice(1).map((x) => x.title).join(' | ')}`;
+      } catch (e) {
+        if (!YT.warned) {
+          YT.warned = true;
+          addLine('error', 'Para reproducir videos dentro de ELIX hay que activar “YouTube Data API v3” (gratis) en console.cloud.google.com, en el mismo proyecto de tu clave de AI Studio, o pegar otra clave en “Clave YouTube”.');
+        }
+        openLink(SITES.youtube(consulta), 'youtube: ' + consulta);
+        return 'No pude reproducirlo dentro de la página (' + String(e.message).slice(0, 120) + '). Abrí la búsqueda de YouTube como alternativa.';
+      }
+    } },
+  { name: 'controlar_reproductor', description: 'Controla el video que se reproduce en esta página: pausar, reanudar, cerrar, siguiente, anterior, subir_volumen, bajar_volumen, silenciar, activar_sonido.',
+    inputSchema: { type: 'object', properties: { accion: { type: 'string', enum: ['pausar', 'reanudar', 'cerrar', 'siguiente', 'anterior', 'subir_volumen', 'bajar_volumen', 'silenciar', 'activar_sonido'] } }, required: ['accion'] },
+    execute: ({ accion }) => {
+      if (YT.ext && YT.list.length) {
+        if (accion === 'siguiente') return ytOpenWindow((YT.i + 1) % YT.list.length);
+        if (accion === 'anterior') return ytOpenWindow((YT.i - 1 + YT.list.length) % YT.list.length);
+        return 'El video está en otra pestaña de YouTube y desde aquí no puedo controlarlo (pausa, volumen). Solo puedo abrir el siguiente o el anterior.';
+      }
+      if ($('#player').hidden) return 'No hay ningún video reproduciéndose.';
+      const go = (i) => { const n = YT.list.length; return n && ytPlay((i + n) % n) ? 'Reproduciendo: ' + YT.list[YT.i].title : 'No hay más resultados.'; };
+      switch (accion) {
+        case 'pausar': ytCmd('pauseVideo'); return 'Pausado.';
+        case 'reanudar': ytCmd('playVideo'); return 'Reanudado.';
+        case 'cerrar': ytClose(); return 'Reproductor cerrado.';
+        case 'siguiente': return go(YT.i + 1);
+        case 'anterior': return go(YT.i - 1);
+        case 'subir_volumen': YT.vol = Math.min(100, YT.vol + 20); ytCmd('setVolume', [YT.vol]); return 'Volumen del video: ' + YT.vol + '%';
+        case 'bajar_volumen': YT.vol = Math.max(0, YT.vol - 20); ytCmd('setVolume', [YT.vol]); return 'Volumen del video: ' + YT.vol + '%';
+        case 'silenciar': ytCmd('mute'); return 'Video silenciado.';
+        case 'activar_sonido': ytCmd('unMute'); return 'Sonido activado.';
+      }
+      return 'Acción desconocida.';
+    } },
+);
+// Acciones de PC: en la web son simuladas; el .exe las implementará en window.jarvisNative
+const TOOLS_NATIVE = [
+  ['abrir_aplicacion', 'Abre una aplicación del PC por nombre (calculadora, chrome, spotify, vscode…).', { nombre: str('Nombre de la app') }, ['nombre']],
+  ['abrir_carpeta', 'Abre una carpeta del PC (descargas, documentos, escritorio, imagenes, musica, videos).', { carpeta: str('Nombre de la carpeta') }, ['carpeta']],
+  ['ajustar_volumen', 'Sube, baja o silencia el volumen del PC.', { accion: { type: 'string', enum: ['subir', 'bajar', 'silenciar'] }, pasos: { type: 'integer' } }, ['accion']],
+  ['control_multimedia', 'Pausa/reanuda o cambia de canción en el PC.', { accion: { type: 'string', enum: ['play_pausa', 'siguiente', 'anterior'] } }, ['accion']],
+  ['info_del_sistema', 'Información del PC: procesador, RAM, tiempo encendido.', {}, []],
+  ['bloquear_pc', 'Bloquea la sesión del PC.', {}, []],
+].map(([name, description, properties, required]) => ({
+  name, description: description + ' (Solo disponible en la versión de escritorio.)',
+  inputSchema: { type: 'object', properties, required },
+  native: true,
+  execute: async (input) => {
+    const fn = window.jarvisNative && window.jarvisNative[name];
+    if (fn) return await fn(input);
+    return 'SIMULADA: esta acción de PC aún no se ejecuta en la versión web de pruebas; llegará con la versión de escritorio (.exe). No se hizo nada en el equipo.';
+  },
+}));
+const ALL_TOOLS = [...TOOLS_WEB, ...TOOLS_NATIVE];
+
+/* ---------- Cerebro ---------- */
+function instrucciones() {
+  return `Te llamas ELIX. Eres el asistente personal de voz del usuario. Háblale de tú, en español natural, cálido y con un toque de ingenio sutil, nunca servil.
+Tus respuestas se leen en voz alta: frases cortas (una o dos), sin markdown, sin listas, sin emojis, sin URLs. Si algo exige una respuesta larga, resume lo esencial y ofrece ampliar.
+Cuando pidan algo que puedas hacer con tus herramientas, hazlo de inmediato y confirma en pocas palabras. Nunca digas que hiciste algo que no ejecutaste. Si una herramienta responde que fue SIMULADA, dilo con naturalidad: aún no está disponible en esta versión web, llegará con la de escritorio. Si algo es ambiguo, haz una sola pregunta corta.
+Para poner música o videos usa reproducir_youtube: por defecto se reproduce dentro de esta página, y si el usuario pide abrir YouTube en una ventana o pestaña nueva usa destino ventana (el navegador puede pedir permitir ventanas emergentes). Si hay un video sonando, pausa, volumen y cambio de video se controlan con controlar_reproductor.
+No inventes datos actuales (noticias, clima): dilo, o abre una búsqueda si el usuario quiere.
+Entorno: versión web de pruebas dentro del navegador. Fecha y hora: ${new Date().toLocaleString('es', { dateStyle: 'full', timeStyle: 'short' })}.`;
+}
+function trim(h) { while (h.length > 16) h = h.slice(2); return h; }
+
+const PRESETS = {
+  gemini: { url: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-flash-lite-latest' },
+  custom: { url: '', model: '' },
+};
+function loadCfg() {
+  const prov = store.get('jarvis:prov', 'gemini');
+  $('#prov').value = prov;
+  $('#key').value = store.get('jarvis:key', '');
+  $('#model').value = store.get('jarvis:model2:' + prov, PRESETS[prov].model);
+  $('#url').value = store.get('jarvis:url', PRESETS.custom.url);
+  $('#urlRow').hidden = prov !== 'custom';
+}
+$('#prov').onchange = (e) => { store.set('jarvis:prov', e.target.value); loadCfg(); };
+$('#key').onchange = (e) => store.set('jarvis:key', e.target.value.trim());
+$('#model').onchange = (e) => store.set('jarvis:model2:' + $('#prov').value, e.target.value.trim());
+$('#url').onchange = (e) => store.set('jarvis:url', e.target.value.trim());
+loadCfg();
+
+function cfg() {
+  const prov = $('#prov').value;
+  return {
+    base: (prov === 'custom' ? $('#url').value.trim() : PRESETS[prov].url).replace(/\/+$/, ''),
+    model: $('#model').value.trim() || PRESETS[prov].model,
+    key: $('#key').value.trim(),
+    prov,
+  };
+}
+
+async function askLLM(msgs, tools) {
+  const c = cfg();
+  const defs = tools.map((t) => {
+    const props = t.inputSchema.properties || {};
+    const fn = { name: t.name, description: t.description };
+    if (Object.keys(props).length) {
+      fn.parameters = { type: 'object', properties: props };
+      if (t.inputSchema.required && t.inputSchema.required.length) fn.parameters.required = t.inputSchema.required;
+    }
+    return { type: 'function', function: fn };
+  });
+  let model = c.model;
+  const fallbacks = c.prov === 'gemini' ? ['gemini-flash-lite-latest', 'gemini-flash-latest'] : [];
+  const wait = (ms) => new Promise((res) => setTimeout(res, ms));
+  async function post(messages) {
+    const order = [model, ...fallbacks.filter((x) => x !== model)];
+    let last = { status: 0, detail: '' };
+    for (const mdl of order) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const headers = { 'content-type': 'application/json' };
+        if (c.key) headers.authorization = 'Bearer ' + c.key;
+        let r;
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 25000);
+        $('#status').textContent = 'Consultando ' + mdl;
+        try {
+          r = await fetch(c.base + '/chat/completions', {
+            method: 'POST', headers, signal: ctl.signal,
+            body: JSON.stringify({ model: mdl, messages, tools: defs, max_tokens: 1200 }),
+          });
+        } catch (e) {
+          clearTimeout(timer);
+          if (e.name === 'AbortError') { last = { status: 0, detail: 'timeout' }; break; }
+          throw { message: 'No pude conectar con el proveedor. Revisa tu internet o la URL.' };
+        }
+        clearTimeout(timer);
+        let d = {};
+        try { d = await r.json(); } catch {}
+        if (r.ok) { model = mdl; return d; }
+        last = { status: r.status, detail: (Array.isArray(d) ? d[0] : d)?.error?.message || '' };
+        if ([400, 401, 403].includes(r.status)) throw { message: `Error ${r.status}. ${last.detail}`.trim() };
+        if (r.status === 404) break; // modelo inexistente: probar el siguiente
+        $('#status').textContent = 'Reintentando…';
+        await wait(1200 * (attempt + 1));
+      }
+    }
+    if (last.detail === 'timeout')
+      throw { message: 'El modelo tardó más de 25 segundos en responder. Prueba otra vez o cambia el modelo en el campo “Modelo”.' };
+    if (last.status === 503 || last.status === 429)
+      throw { message: 'Gemini está saturado o llegaste al límite gratuito. Prueba de nuevo en unos minutos, o escribe otro modelo en el campo “Modelo” (por ejemplo gemini-flash-lite-latest).' };
+    throw { message: `Error ${last.status} del proveedor. ${last.detail}`.trim() };
+  }
+  const messages = [{ role: 'system', content: instrucciones() }, ...msgs.map((m) => ({ role: m.role, content: m.content }))];
+  for (let i = 0; i < 6; i++) {
+    const d = await post(messages);
+    const m = d.choices?.[0]?.message;
+    if (!m) throw { message: 'El proveedor no devolvió respuesta.' };
+    messages.push(m);
+    if (!m.tool_calls || !m.tool_calls.length) return { text: (m.content || '').trim() };
+    for (const call of m.tool_calls) {
+      const t = tools.find((x) => x.name === call.function.name);
+      let input = {};
+      try { input = JSON.parse(call.function.arguments || '{}'); } catch {}
+      let out;
+      try { out = t ? await t.execute(input) : 'Herramienta desconocida'; } catch (e) { out = 'Error: ' + (e.message || e); }
+      messages.push({ role: 'tool', tool_call_id: call.id, name: call.function.name, content: typeof out === 'string' ? out : JSON.stringify(out) });
+    }
+  }
+  return { text: 'Me enredé con tantos pasos. ¿Lo intentamos de nuevo?' };
+}
+
+async function send(text) {
+  if (!text || busy) return;
+  busy = true; ear.stop();
+  if (speaking) stopSpeaking();
+  addLine('user', text); setState('thinking', 'Pensando');
+  history = trim([...history, { role: 'user', content: text }]);
+  const turnStart = history.length;
+  try {
+    const c = cfg();
+    if (c.prov === 'gemini' && !c.key) throw { message: 'Falta la clave gratuita de Gemini. Consíguela en aistudio.google.com (Get API key) y pégala en el campo “Clave”.' };
+    if (!c.base) throw { message: 'Escribe la URL del proveedor en el campo “URL”.' };
+    const msgs = history;
+    const tools = ALL_TOOLS.map((t) => ({
+      name: t.name, description: t.description, inputSchema: t.inputSchema,
+      execute: async (input) => {
+        setState('acting', 'Ejecutando');
+        let out;
+        try { out = await t.execute(input || {}); } catch (e) { out = 'Error: ' + (e.message || e); }
+        const sim = t.native && !window.jarvisNative;
+        addEl('chip' + (sim ? ' sim' : ''), `${t.name}${Object.keys(input || {}).length ? ' ' + JSON.stringify(input) : ''}: ${String(out).slice(0, 160)}`);
+        return out;
+      },
+    }));
+    const res = await askLLM(msgs, tools);
+    const reply = (res.text || '').trim() || 'Listo.';
+    history = trim([...history, { role: 'assistant', content: reply }]);
+    addLine('jarvis', reply);
+    await speak(reply);
+  } catch (e) {
+    history = history.slice(0, Math.max(0, turnStart - 1));
+    const msg = e?.code === 'not_granted' ? 'Necesito tu permiso para usar a Claude como cerebro. Vuelve a intentarlo y acepta.'
+      : e?.code === 'rate_limited' ? 'Demasiadas peticiones seguidas. Espera unos segundos.'
+      : (e?.message || 'Error desconocido');
+    addLine('error', msg);
+    await speak('Algo falló. Mira el mensaje en pantalla.');
+  } finally {
+    busy = false; afterTurn();
+  }
+}
+
+$('#form').onsubmit = (e) => {
+  e.preventDefault();
+  const t = $('#text').value.trim();
+  $('#text').value = '';
+  send(t);
+};
+ear.init();
+</script>
+</body>
+</html>
