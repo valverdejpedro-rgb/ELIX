@@ -1,0 +1,36 @@
+{
+  "name": "elix",
+  "productName": "ELIX",
+  "version": "1.0.0",
+  "description": "ELIX - asistente de IA",
+  "main": "main.js",
+  "author": "Pedro",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never",
+    "release": "electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.pedro.elix",
+    "productName": "ELIX",
+    "files": ["main.js", "preload.js", "app/**/*"],
+    "win": { "target": "nsis" },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "publish": [
+      { "provider": "github", "owner": "valverdejpedro-rgb", "repo": "ELIX" }
+    ]
+  }
+}
