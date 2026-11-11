@@ -30,10 +30,12 @@
       "deleteAppDataOnUninstall": false
     },
     "publish": [
-  {
-    "provider": "github",
-    "owner": "valverdejpedro-rgb",
-    "repo": "ELIX",
-    "releaseType": "release"
+      {
+        "provider": "github",
+        "owner": "valverdejpedro-rgb",
+        "repo": "ELIX",
+        "releaseType": "release"
+      }
+    ]
   }
-]
+}
