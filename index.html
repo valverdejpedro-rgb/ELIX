@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>JARVIS</title>
+<title>ELIX</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -50,6 +50,12 @@
   #lvl{width:min(60vw,260px);height:4px;background:var(--line);border-radius:4px;overflow:hidden;margin:-4px 0 8px;opacity:0;transition:opacity .2s;flex:none}
   #lvl.on{opacity:1}
   #lvl i{display:block;height:100%;width:0;background:var(--cy)}
+  #player{width:min(92vw,440px);flex:none;margin:0 0 8px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#000}
+  #player[hidden]{display:none}
+  .phead{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:4px 10px;background:var(--panel);font-size:15px}
+  #ptitle{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mute)}
+  #yt{display:block;width:100%;aspect-ratio:16/9;border:0}
+  body.playing .orb{width:min(16vmin,110px);margin:1vh 0}
   #interim{min-height:24px;color:var(--mute);font-style:italic;text-align:center;font-size:16px;padding:0 20px}
 
   form{width:100%;max-width:760px;display:flex;gap:10px;padding:6px 20px 8px}
@@ -64,13 +70,17 @@
 </style>
 </head>
 <body data-state="idle">
-<header><h1>JARVIS</h1><span id="status" aria-live="polite">En espera</span></header>
+<header><h1>ELIX</h1><span id="status" aria-live="polite">En espera</span></header>
 
-<button class="orb" id="orb" aria-label="Interrumpir a JARVIS">
+<button class="orb" id="orb" aria-label="Interrumpir a ELIX">
   <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span><span class="core"></span>
 </button>
 
 <div id="lvl" aria-hidden="true"><i></i></div>
+<div id="player" hidden>
+  <div class="phead"><span id="ptitle"></span><button type="button" class="btn" id="pclose" style="padding:2px 12px">Cerrar</button></div>
+  <iframe id="yt" title="Reproductor de YouTube" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+</div>
 <div id="log" aria-live="polite"></div>
 <div id="interim"></div>
 
@@ -80,7 +90,7 @@
   <button class="btn" type="submit">Enviar</button>
 </form>
 <div class="opts">
-  <label><input type="checkbox" id="wake"> Solo si digo “Jarvis”</label>
+  <label><input type="checkbox" id="wake"> Solo si digo “Elix”</label>
   <label><input type="checkbox" id="mute"> Sin voz</label>
   <label><input type="checkbox" id="gemear"> Oído con Gemini</label>
   <label>Cerebro
@@ -92,13 +102,16 @@
   <label>Clave <input type="password" id="key" placeholder="pega tu clave" autocomplete="off" aria-label="Clave de API" class="mini" style="width:150px"></label>
   <label>Modelo <input type="text" id="model" aria-label="Modelo" class="mini" style="width:150px"></label>
   <label id="urlRow" hidden>URL <input type="text" id="url" placeholder="http://localhost:11434/v1" aria-label="URL base" class="mini" style="width:200px"></label>
-  <label>Voz <select id="voice" aria-label="Voz"></select></label>
+  <label>Motor de voz <select id="tts" aria-label="Motor de voz"><option value="gemini">Gemini (natural)</option><option value="browser">Navegador</option></select></label>
+  <label>Voz Gemini <select id="gvoice" aria-label="Voz de Gemini"><option>Kore</option><option>Aoede</option><option>Zephyr</option><option>Puck</option><option>Charon</option><option>Fenrir</option><option>Orus</option></select></label>
+  <label>Voz del navegador <select id="voice" aria-label="Voz del navegador"></select></label>
+  <label>Clave YouTube <input type="password" id="ykey" placeholder="opcional" autocomplete="off" aria-label="Clave de YouTube (opcional)" class="mini" style="width:120px"></label>
   <label>Velocidad <input type="range" id="rate" min="0.8" max="1.3" step="0.05" value="1.05"></label>
 </div>
 
 <script>
 /* =====================================================================
-   JARVIS — versión web de pruebas
+   ELIX — versión web de pruebas
    Capas (pensadas para pasar a .exe sin reescribir):
    1) Oído/voz:   Web Speech (o dictation si corre dentro de Claude) + speechSynthesis
    2) Cerebro:    API compatible con OpenAI (Gemini gratis, Ollama, etc.); clave solo en tu navegador
@@ -140,7 +153,7 @@ $('#voice').onchange = (e) => store.set('voice', e.target.value);
 $('#wake').checked = store.get('wake', '') === '1';
 $('#wake').onchange = (e) => store.set('wake', e.target.checked ? '1' : '');
 
-function speak(text) {
+function speakBrowser(text) {
   return new Promise((resolve) => {
     if (!text || $('#mute').checked || !window.speechSynthesis) return resolve();
     speechSynthesis.cancel();
@@ -159,7 +172,62 @@ function speak(text) {
     next();
   });
 }
-$('#orb').onclick = () => { if (speaking) { speaking = false; speechSynthesis.cancel(); } };
+const TTS_MODEL = 'gemini-2.5-flash-preview-tts';
+let ttsCool = 0, ttsSrc = null, ttsCtx = null;
+$('#tts').value = store.get('jarvis:tts', 'gemini');
+$('#tts').onchange = (e) => store.set('jarvis:tts', e.target.value);
+$('#gvoice').value = store.get('jarvis:gvoice', 'Kore');
+$('#gvoice').onchange = (e) => store.set('jarvis:gvoice', e.target.value);
+$('#ykey').value = store.get('jarvis:ykey', '');
+$('#ykey').onchange = (e) => store.set('jarvis:ykey', e.target.value.trim());
+
+function stopSpeaking() {
+  speaking = false;
+  try { speechSynthesis.cancel(); } catch {}
+  try { ttsSrc && ttsSrc.stop(); } catch {}
+}
+$('#orb').onclick = () => { if (speaking) stopSpeaking(); };
+
+async function speakGemini(text) {
+  const c = cfg();
+  if (!c.key || c.prov !== 'gemini') return false;
+  speaking = true; setState('thinking', 'Preparando voz');
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 12000);
+  try {
+    const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + TTS_MODEL + ':generateContent', {
+      method: 'POST', signal: ctl.signal,
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': c.key },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: 'Di de forma natural, cálida y tranquila, en español latinoamericano: ' + text }] }],
+        generationConfig: { responseModalities: ['AUDIO'], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: $('#gvoice').value } } } },
+      }),
+    });
+    if (!r.ok) { ttsCool = Date.now() + ((r.status === 429 || r.status >= 500) ? 60000 : 600000); return false; }
+    const d = await r.json();
+    const part = (d.candidates?.[0]?.content?.parts || []).find((x) => x.inlineData);
+    if (!part) { ttsCool = Date.now() + 60000; return false; }
+    if (!speaking) return true; // lo interrumpieron mientras se generaba
+    const rate = +((part.inlineData.mimeType || '').match(/rate=(\d+)/)?.[1] || 24000);
+    const bin = atob(part.inlineData.data), n = bin.length >> 1, f = new Float32Array(n);
+    for (let i = 0; i < n; i++) { let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8); if (v >= 0x8000) v -= 0x10000; f[i] = v / 32768; }
+    ttsCtx = ttsCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (ttsCtx.state === 'suspended') await ttsCtx.resume();
+    const buf = ttsCtx.createBuffer(1, n, rate); buf.copyToChannel(f, 0);
+    setState('speaking', 'Hablando');
+    await new Promise((res) => { const src = ttsCtx.createBufferSource(); src.buffer = buf; src.connect(ttsCtx.destination); src.onended = res; ttsSrc = src; src.start(); });
+    return true;
+  } catch { ttsCool = Date.now() + 30000; return false; }
+  finally { clearTimeout(timer); ttsSrc = null; }
+}
+async function speak(text) {
+  if (!text || $('#mute').checked) return;
+  if ($('#tts').value === 'gemini' && text.length > 12 && Date.now() > ttsCool) {
+    const ok = await speakGemini(text);
+    speaking = false;
+    if (ok) return;
+  }
+  return speakBrowser(text);
+}
 
 /* ---------- Oído (dictation de Claude, o Web Speech como respaldo) ---------- */
 const ear = {
@@ -234,7 +302,7 @@ function afterTurn() {
 function onFinal(text) {
   if (!text) return;
   if ($('#wake').checked) {
-    const m = text.match(/^(?:oye |hey |ok )?[jy]arvis\b[,.!¡¿ ]*(.*)$/i);
+    const m = text.match(/^(?:oye |hey |ok )?(?:[eé]lix|[eé]lics|[eé]lis|[eé]liks|helix|helics|[eé]lyx)\b[,.!¡¿ ]*(.*)$/i);
     if (!m) return;
     text = m[1].trim();
     if (!text) { ear.stop(); speak('Dime.').then(afterTurn); return; }
@@ -326,7 +394,7 @@ async function transcribe(wavB64) {
       body: JSON.stringify({
         model: c.prov === 'gemini' ? 'gemini-flash-lite-latest' : c.model, max_tokens: 300,
         messages: [{ role: 'user', content: [
-          { type: 'text', text: 'Transcribe literalmente, en español, lo que se dice en este audio. Responde solo con la transcripción, sin comillas ni comentarios. Si no hay voz humana clara, responde únicamente con un punto.' },
+          { type: 'text', text: 'Transcribe literalmente, en español, lo que se dice en este audio. El asistente se llama Elix: si oyes algo parecido (Elis, Helix, Elics), escribe Elix. Responde solo con la transcripción, sin comillas ni comentarios. Si no hay voz humana clara, responde únicamente con un punto.' },
           { type: 'input_audio', input_audio: { data: wavB64, format: 'wav' } },
         ] }],
       }),
@@ -396,7 +464,7 @@ const TOOLS_WEB = [
   { name: 'abrir_web', description: 'Abre una página web (URL completa http/https).',
     inputSchema: { type: 'object', properties: { url: str('URL completa') }, required: ['url'] },
     execute: ({ url }) => openLink(url, url) },
-  { name: 'buscar', description: 'Busca algo en google, youtube, maps o wikipedia.',
+  { name: 'buscar', description: 'Abre una búsqueda en google, youtube, maps o wikipedia en una pestaña nueva. Para poner música o videos usa reproducir_youtube.',
     inputSchema: { type: 'object', properties: { consulta: str('Qué buscar'), sitio: { type: 'string', enum: Object.keys(SITES) } }, required: ['consulta'] },
     execute: ({ consulta, sitio = 'google' }) => openLink((SITES[sitio] || SITES.google)(consulta), `${sitio}: ${consulta}`) },
   { name: 'temporizador', description: 'Pone un temporizador o recordatorio que sonará y avisará en voz alta.',
@@ -436,6 +504,67 @@ const TOOLS_WEB = [
     } },
 ];
 
+/* ---------- YouTube dentro de la página ---------- */
+const YT = { list: [], i: 0, vol: 100, warned: false };
+const decodeHtml = (t) => { const x = document.createElement('textarea'); x.innerHTML = t; return x.value; };
+function ytCmd(func, args = []) {
+  try { $('#yt').contentWindow.postMessage(JSON.stringify({ event: 'command', func, args }), '*'); } catch {}
+}
+function ytPlay(i) {
+  const v = YT.list[i]; if (!v) return false;
+  YT.i = i; YT.vol = 100;
+  $('#yt').src = 'https://www.youtube.com/embed/' + v.id + '?autoplay=1&playsinline=1&rel=0&enablejsapi=1&origin=' + encodeURIComponent(location.origin);
+  $('#ptitle').textContent = v.title; $('#player').hidden = false; document.body.classList.add('playing');
+  return true;
+}
+function ytClose() { $('#yt').src = 'about:blank'; $('#player').hidden = true; document.body.classList.remove('playing'); YT.list = []; }
+$('#pclose').onclick = ytClose;
+async function ytSearch(q) {
+  const key = $('#ykey').value.trim() || cfg().key;
+  if (!key) throw new Error('sin_clave');
+  const r = await fetch('https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&videoEmbeddable=true&maxResults=5&q=' +
+    encodeURIComponent(q) + '&key=' + encodeURIComponent(key));
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error('api_' + r.status + ' ' + (d.error?.message || ''));
+  return (d.items || []).filter((x) => x.id?.videoId).map((x) => ({ id: x.id.videoId, title: decodeHtml(x.snippet.title), canal: decodeHtml(x.snippet.channelTitle) }));
+}
+TOOLS_WEB.push(
+  { name: 'reproducir_youtube', description: 'Busca en YouTube y reproduce el primer resultado dentro de esta página (música, videos, canciones). Úsala cuando pidan poner o reproducir algo.',
+    inputSchema: { type: 'object', properties: { consulta: str('Qué reproducir, por ejemplo: canción y artista') }, required: ['consulta'] },
+    execute: async ({ consulta }) => {
+      try {
+        const list = await ytSearch(consulta);
+        if (!list.length) return 'No encontré resultados reproducibles para esa búsqueda.';
+        YT.list = list; ytPlay(0);
+        return `Reproduciendo "${list[0].title}" de ${list[0].canal}. Otros resultados disponibles con "siguiente": ${list.slice(1).map((x) => x.title).join(' | ')}`;
+      } catch (e) {
+        if (!YT.warned) {
+          YT.warned = true;
+          addLine('error', 'Para reproducir videos dentro de ELIX hay que activar “YouTube Data API v3” (gratis) en console.cloud.google.com, en el mismo proyecto de tu clave de AI Studio, o pegar otra clave en “Clave YouTube”.');
+        }
+        openLink(SITES.youtube(consulta), 'youtube: ' + consulta);
+        return 'No pude reproducirlo dentro de la página (' + String(e.message).slice(0, 120) + '). Abrí la búsqueda de YouTube como alternativa.';
+      }
+    } },
+  { name: 'controlar_reproductor', description: 'Controla el video que se reproduce en esta página: pausar, reanudar, cerrar, siguiente, anterior, subir_volumen, bajar_volumen, silenciar, activar_sonido.',
+    inputSchema: { type: 'object', properties: { accion: { type: 'string', enum: ['pausar', 'reanudar', 'cerrar', 'siguiente', 'anterior', 'subir_volumen', 'bajar_volumen', 'silenciar', 'activar_sonido'] } }, required: ['accion'] },
+    execute: ({ accion }) => {
+      if ($('#player').hidden) return 'No hay ningún video reproduciéndose.';
+      const go = (i) => { const n = YT.list.length; return n && ytPlay((i + n) % n) ? 'Reproduciendo: ' + YT.list[YT.i].title : 'No hay más resultados.'; };
+      switch (accion) {
+        case 'pausar': ytCmd('pauseVideo'); return 'Pausado.';
+        case 'reanudar': ytCmd('playVideo'); return 'Reanudado.';
+        case 'cerrar': ytClose(); return 'Reproductor cerrado.';
+        case 'siguiente': return go(YT.i + 1);
+        case 'anterior': return go(YT.i - 1);
+        case 'subir_volumen': YT.vol = Math.min(100, YT.vol + 20); ytCmd('setVolume', [YT.vol]); return 'Volumen del video: ' + YT.vol + '%';
+        case 'bajar_volumen': YT.vol = Math.max(0, YT.vol - 20); ytCmd('setVolume', [YT.vol]); return 'Volumen del video: ' + YT.vol + '%';
+        case 'silenciar': ytCmd('mute'); return 'Video silenciado.';
+        case 'activar_sonido': ytCmd('unMute'); return 'Sonido activado.';
+      }
+      return 'Acción desconocida.';
+    } },
+);
 // Acciones de PC: en la web son simuladas; el .exe las implementará en window.jarvisNative
 const TOOLS_NATIVE = [
   ['abrir_aplicacion', 'Abre una aplicación del PC por nombre (calculadora, chrome, spotify, vscode…).', { nombre: str('Nombre de la app') }, ['nombre']],
@@ -458,9 +587,10 @@ const ALL_TOOLS = [...TOOLS_WEB, ...TOOLS_NATIVE];
 
 /* ---------- Cerebro ---------- */
 function instrucciones() {
-  return `Eres JARVIS, el asistente personal de voz del usuario. Háblale de tú, en español natural, cálido y con un toque de ingenio sutil, nunca servil.
+  return `Te llamas ELIX. Eres el asistente personal de voz del usuario. Háblale de tú, en español natural, cálido y con un toque de ingenio sutil, nunca servil.
 Tus respuestas se leen en voz alta: frases cortas (una o dos), sin markdown, sin listas, sin emojis, sin URLs. Si algo exige una respuesta larga, resume lo esencial y ofrece ampliar.
 Cuando pidan algo que puedas hacer con tus herramientas, hazlo de inmediato y confirma en pocas palabras. Nunca digas que hiciste algo que no ejecutaste. Si una herramienta responde que fue SIMULADA, dilo con naturalidad: aún no está disponible en esta versión web, llegará con la de escritorio. Si algo es ambiguo, haz una sola pregunta corta.
+Para poner música o videos usa reproducir_youtube: se reproduce dentro de esta misma página. Si hay un video sonando, pausa, volumen y cambio de video se controlan con controlar_reproductor.
 No inventes datos actuales (noticias, clima): dilo, o abre una búsqueda si el usuario quiere.
 Entorno: versión web de pruebas dentro del navegador. Fecha y hora: ${new Date().toLocaleString('es', { dateStyle: 'full', timeStyle: 'short' })}.`;
 }
@@ -568,7 +698,7 @@ async function askLLM(msgs, tools) {
 async function send(text) {
   if (!text || busy) return;
   busy = true; ear.stop();
-  if (speaking) { speaking = false; speechSynthesis.cancel(); }
+  if (speaking) stopSpeaking();
   addLine('user', text); setState('thinking', 'Pensando');
   history = trim([...history, { role: 'user', content: text }]);
   const turnStart = history.length;
