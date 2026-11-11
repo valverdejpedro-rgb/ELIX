@@ -47,6 +47,9 @@
   .chip{align-self:flex-start;max-width:100%;font-size:15px;color:var(--amber);padding:2px 10px;border:1px solid color-mix(in srgb,var(--amber) 40%,transparent);border-radius:20px;overflow-wrap:anywhere}
   a.chip{text-decoration:underline}
   .chip.sim{color:var(--mute);border-color:var(--line)}
+  #lvl{width:min(60vw,260px);height:4px;background:var(--line);border-radius:4px;overflow:hidden;margin:-4px 0 8px;opacity:0;transition:opacity .2s;flex:none}
+  #lvl.on{opacity:1}
+  #lvl i{display:block;height:100%;width:0;background:var(--cy)}
   #interim{min-height:24px;color:var(--mute);font-style:italic;text-align:center;font-size:16px;padding:0 20px}
 
   form{width:100%;max-width:760px;display:flex;gap:10px;padding:6px 20px 8px}
@@ -67,6 +70,7 @@
   <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span><span class="core"></span>
 </button>
 
+<div id="lvl" aria-hidden="true"><i></i></div>
 <div id="log" aria-live="polite"></div>
 <div id="interim"></div>
 
@@ -182,7 +186,19 @@ const ear = {
       $('#interim').textContent = interim;
     };
     r.onend = () => { $('#interim').textContent = ''; if (listening && !busy && !speaking) setTimeout(() => this.start(), 250); };
-    r.onerror = (e) => { if (/not-allowed|service-not-allowed/.test(e.error)) this.denied(); };
+    r.onspeechstart = () => setState('listening', 'Te escucho');
+    r.onerror = (e) => {
+      const err = e.error;
+      if (err === 'no-speech' || err === 'aborted') return;
+      if (err === 'not-allowed' || err === 'service-not-allowed') return this.denied();
+      if (err === 'language-not-supported') { r.lang = 'es-ES'; return; }
+      listening = false; updateMic(); stopMeter(); setState('idle', 'En espera');
+      addLine('error', err === 'network'
+        ? 'El reconocimiento de voz del navegador no pudo conectarse (error de red). Prueba en Google Chrome, revisa tu internet y recarga.'
+        : err === 'audio-capture'
+        ? 'El navegador no encuentra un micrófono que pueda usar. Revisa la entrada de sonido de Windows.'
+        : 'Falló el reconocimiento de voz (' + err + ').');
+    };
   },
   denied() {
     listening = false; updateMic(); setState('idle', 'En espera');
@@ -221,8 +237,33 @@ function onFinal(text) {
 }
 $('#mic').onclick = () => {
   listening = !listening; updateMic();
-  if (listening) ear.start(); else { ear.stop(); setState('idle', 'En espera'); }
+  if (listening) { ear.start(); startMeter(); } else { ear.stop(); stopMeter(); setState('idle', 'En espera'); }
 };
+
+let meter = null;
+async function startMeter() {
+  if (meter || !navigator.mediaDevices) return;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const an = ctx.createAnalyser(); an.fftSize = 512;
+    ctx.createMediaStreamSource(stream).connect(an);
+    const buf = new Uint8Array(an.fftSize), bar = $('#lvl i');
+    $('#lvl').classList.add('on');
+    let raf;
+    const tick = () => {
+      an.getByteTimeDomainData(buf);
+      let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v - 128));
+      bar.style.width = Math.min(100, m * 1.6) + '%';
+      raf = requestAnimationFrame(tick);
+    };
+    tick();
+    meter = { stop() { cancelAnimationFrame(raf); stream.getTracks().forEach((t) => t.stop()); ctx.close(); $('#lvl').classList.remove('on'); } };
+  } catch (e) {
+    addLine('error', 'No pude abrir el micrófono (' + (e.name || 'error') + '). Revisa el permiso del sitio y que Windows permita el micrófono a las aplicaciones.');
+  }
+}
+function stopMeter() { if (meter) meter.stop(); meter = null; }
 
 /* ---------- Acciones ---------- */
 const COLORS = { cian: '#4fd8ff', azul: '#5b8cff', verde: '#5dffa4', rojo: '#ff5d6c', morado: '#b48cff', naranja: '#ff9b4f', rosa: '#ff7ac8', amarillo: '#ffe14f', blanco: '#f2f8ff' };
@@ -379,12 +420,20 @@ async function askLLM(msgs, tools) {
         const headers = { 'content-type': 'application/json' };
         if (c.key) headers.authorization = 'Bearer ' + c.key;
         let r;
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 25000);
+        $('#status').textContent = 'Consultando ' + mdl;
         try {
           r = await fetch(c.base + '/chat/completions', {
-            method: 'POST', headers,
-            body: JSON.stringify({ model: mdl, messages, tools: defs, max_tokens: 700 }),
+            method: 'POST', headers, signal: ctl.signal,
+            body: JSON.stringify({ model: mdl, messages, tools: defs, max_tokens: 1200 }),
           });
-        } catch { throw { message: 'No pude conectar con el proveedor. Revisa tu internet o la URL.' }; }
+        } catch (e) {
+          clearTimeout(timer);
+          if (e.name === 'AbortError') { last = { status: 0, detail: 'timeout' }; break; }
+          throw { message: 'No pude conectar con el proveedor. Revisa tu internet o la URL.' };
+        }
+        clearTimeout(timer);
         let d = {};
         try { d = await r.json(); } catch {}
         if (r.ok) { model = mdl; return d; }
@@ -395,6 +444,8 @@ async function askLLM(msgs, tools) {
         await wait(1200 * (attempt + 1));
       }
     }
+    if (last.detail === 'timeout')
+      throw { message: 'El modelo tardó más de 25 segundos en responder. Prueba otra vez o cambia el modelo en el campo “Modelo”.' };
     if (last.status === 503 || last.status === 429)
       throw { message: 'Gemini está saturado o llegaste al límite gratuito. Prueba de nuevo en unos minutos, o escribe otro modelo en el campo “Modelo” (por ejemplo gemini-flash-lite-latest).' };
     throw { message: `Error ${last.status} del proveedor. ${last.detail}`.trim() };
