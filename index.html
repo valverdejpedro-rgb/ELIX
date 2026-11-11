@@ -56,6 +56,7 @@
   #mic[aria-pressed=true]{background:var(--cy);color:var(--ink);border-color:var(--cy)}
   .opts{width:100%;max-width:760px;display:flex;flex-wrap:wrap;gap:6px 18px;padding:0 20px 14px;color:var(--mute);font-size:15px;align-items:center}
   .opts label{display:flex;gap:6px;align-items:center}
+  .mini{background:var(--panel);color:var(--ice);border:1px solid var(--line);border-radius:8px;padding:4px 8px;font:inherit;font-size:15px;flex:none}
   select{background:var(--panel);color:var(--ice);border:1px solid var(--line);border-radius:8px;padding:4px 6px;font:inherit;font-size:15px;max-width:220px}
 </style>
 </head>
@@ -77,7 +78,15 @@
 <div class="opts">
   <label><input type="checkbox" id="wake"> Solo si digo “Jarvis”</label>
   <label><input type="checkbox" id="mute"> Sin voz</label>
-  <label>Clave API <input type="password" id="key" placeholder="sk-ant-..." autocomplete="off" aria-label="Clave API de Anthropic" style="background:var(--panel);color:var(--ice);border:1px solid var(--line);border-radius:8px;padding:4px 8px;font:inherit;font-size:15px;width:170px"></label>
+  <label>Cerebro
+    <select id="prov" aria-label="Proveedor del cerebro">
+      <option value="gemini">Gemini (gratis)</option>
+      <option value="custom">Otro (compatible OpenAI)</option>
+    </select>
+  </label>
+  <label>Clave <input type="password" id="key" placeholder="pega tu clave" autocomplete="off" aria-label="Clave de API" class="mini" style="width:150px"></label>
+  <label>Modelo <input type="text" id="model" aria-label="Modelo" class="mini" style="width:150px"></label>
+  <label id="urlRow" hidden>URL <input type="text" id="url" placeholder="http://localhost:11434/v1" aria-label="URL base" class="mini" style="width:200px"></label>
   <label>Voz <select id="voice" aria-label="Voz"></select></label>
   <label>Velocidad <input type="range" id="rate" min="0.8" max="1.3" step="0.05" value="1.05"></label>
 </div>
@@ -87,7 +96,7 @@
    JARVIS — versión web de pruebas
    Capas (pensadas para pasar a .exe sin reescribir):
    1) Oído/voz:   Web Speech (o dictation si corre dentro de Claude) + speechSynthesis
-   2) Cerebro:    API de Anthropic directa (clave guardada solo en tu navegador)
+   2) Cerebro:    API compatible con OpenAI (Gemini gratis, Ollama, etc.); clave solo en tu navegador
    3) Acciones:   TOOLS_WEB (funcionan en el navegador) y TOOLS_NATIVE
                   (acciones de PC). En el .exe, window.jarvisNative las
                   implementa; en la web devuelven un aviso de "simulada".
@@ -320,35 +329,72 @@ Entorno: versión web de pruebas dentro del navegador. Fecha y hora: ${new Date(
 }
 function trim(h) { while (h.length > 16) h = h.slice(2); return h; }
 
-const MODEL = 'claude-sonnet-5-5';
-$('#key').value = store.get('jarvis:key', '');
+const PRESETS = {
+  gemini: { url: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-flash-latest' },
+  custom: { url: '', model: '' },
+};
+function loadCfg() {
+  const prov = store.get('jarvis:prov', 'gemini');
+  $('#prov').value = prov;
+  $('#key').value = store.get('jarvis:key', '');
+  $('#model').value = store.get('jarvis:model:' + prov, PRESETS[prov].model);
+  $('#url').value = store.get('jarvis:url', PRESETS.custom.url);
+  $('#urlRow').hidden = prov !== 'custom';
+}
+$('#prov').onchange = (e) => { store.set('jarvis:prov', e.target.value); loadCfg(); };
 $('#key').onchange = (e) => store.set('jarvis:key', e.target.value.trim());
+$('#model').onchange = (e) => store.set('jarvis:model:' + $('#prov').value, e.target.value.trim());
+$('#url').onchange = (e) => store.set('jarvis:url', e.target.value.trim());
+loadCfg();
 
-async function askClaude(key, msgs, tools) {
-  const messages = msgs.map((m) => ({ role: m.role, content: m.content }));
-  const defs = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema }));
-  for (let i = 0; i < 6; i++) {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json', 'x-api-key': key,
-        'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({ model: MODEL, max_tokens: 700, tools: defs, messages }),
-    });
-    const d = await r.json();
-    if (!r.ok) throw { message: d?.error?.message || 'Error ' + r.status + ' de la API' };
-    messages.push({ role: 'assistant', content: d.content });
-    const uses = d.content.filter((b) => b.type === 'tool_use');
-    if (!uses.length) return { text: d.content.filter((b) => b.type === 'text').map((b) => b.text).join(' ') };
-    const results = [];
-    for (const u of uses) {
-      const t = tools.find((x) => x.name === u.name);
-      let out;
-      try { out = t ? await t.execute(u.input) : 'Herramienta desconocida'; } catch (e) { out = 'Error: ' + (e.message || e); }
-      results.push({ type: 'tool_result', tool_use_id: u.id, content: typeof out === 'string' ? out : JSON.stringify(out) });
+function cfg() {
+  const prov = $('#prov').value;
+  return {
+    base: (prov === 'custom' ? $('#url').value.trim() : PRESETS[prov].url).replace(/\/+$/, ''),
+    model: $('#model').value.trim() || PRESETS[prov].model,
+    key: $('#key').value.trim(),
+    prov,
+  };
+}
+
+async function askLLM(msgs, tools) {
+  const c = cfg();
+  const defs = tools.map((t) => {
+    const props = t.inputSchema.properties || {};
+    const fn = { name: t.name, description: t.description };
+    if (Object.keys(props).length) {
+      fn.parameters = { type: 'object', properties: props };
+      if (t.inputSchema.required && t.inputSchema.required.length) fn.parameters.required = t.inputSchema.required;
     }
-    messages.push({ role: 'user', content: results });
+    return { type: 'function', function: fn };
+  });
+  const messages = [{ role: 'system', content: instrucciones() }, ...msgs.map((m) => ({ role: m.role, content: m.content }))];
+  for (let i = 0; i < 6; i++) {
+    const headers = { 'content-type': 'application/json' };
+    if (c.key) headers.authorization = 'Bearer ' + c.key;
+    const r = await fetch(c.base + '/chat/completions', {
+      method: 'POST', headers,
+      body: JSON.stringify({ model: c.model, messages, tools: defs, max_tokens: 700 }),
+    });
+    let d = {};
+    try { d = await r.json(); } catch {}
+    if (!r.ok) {
+      const detail = (Array.isArray(d) ? d[0] : d)?.error?.message || '';
+      if (r.status === 429) throw { message: 'Se agotó el límite gratuito por ahora. Espera un minuto y vuelve a intentar.' };
+      throw { message: `Error ${r.status} del proveedor. ${detail}`.trim() };
+    }
+    const m = d.choices?.[0]?.message;
+    if (!m) throw { message: 'El proveedor no devolvió respuesta.' };
+    messages.push(m);
+    if (!m.tool_calls || !m.tool_calls.length) return { text: (m.content || '').trim() };
+    for (const call of m.tool_calls) {
+      const t = tools.find((x) => x.name === call.function.name);
+      let input = {};
+      try { input = JSON.parse(call.function.arguments || '{}'); } catch {}
+      let out;
+      try { out = t ? await t.execute(input) : 'Herramienta desconocida'; } catch (e) { out = 'Error: ' + (e.message || e); }
+      messages.push({ role: 'tool', tool_call_id: call.id, name: call.function.name, content: typeof out === 'string' ? out : JSON.stringify(out) });
+    }
   }
   return { text: 'Me enredé con tantos pasos. ¿Lo intentamos de nuevo?' };
 }
@@ -361,9 +407,10 @@ async function send(text) {
   history = trim([...history, { role: 'user', content: text }]);
   const turnStart = history.length;
   try {
-    const key = $('#key').value.trim();
-    if (!key) throw { message: 'Pega tu clave de API de Anthropic en el campo “Clave API” (abajo) y vuelve a intentarlo.' };
-    const msgs = history.map((m, i) => i === 0 ? { ...m, content: `<instrucciones>\n${instrucciones()}\n</instrucciones>\n\n${m.content}` } : m);
+    const c = cfg();
+    if (c.prov === 'gemini' && !c.key) throw { message: 'Falta la clave gratuita de Gemini. Consíguela en aistudio.google.com (Get API key) y pégala en el campo “Clave”.' };
+    if (!c.base) throw { message: 'Escribe la URL del proveedor en el campo “URL”.' };
+    const msgs = history;
     const tools = ALL_TOOLS.map((t) => ({
       name: t.name, description: t.description, inputSchema: t.inputSchema,
       execute: async (input) => {
@@ -375,7 +422,7 @@ async function send(text) {
         return out;
       },
     }));
-    const res = await askClaude(key, msgs, tools);
+    const res = await askLLM(msgs, tools);
     const reply = (res.text || '').trim() || 'Listo.';
     history = trim([...history, { role: 'assistant', content: reply }]);
     addLine('jarvis', reply);
