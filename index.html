@@ -106,6 +106,7 @@
   <label>Voz Gemini <select id="gvoice" aria-label="Voz de Gemini"><option>Kore</option><option>Aoede</option><option>Zephyr</option><option>Puck</option><option>Charon</option><option>Fenrir</option><option>Orus</option></select></label>
   <label>Voz del navegador <select id="voice" aria-label="Voz del navegador"></select></label>
   <label>Clave YouTube <input type="password" id="ykey" placeholder="opcional" autocomplete="off" aria-label="Clave de YouTube (opcional)" class="mini" style="width:120px"></label>
+  <label>Reproducir en <select id="ydest" aria-label="Dónde reproducir los videos"><option value="pagina">Esta página</option><option value="ventana">Pestaña nueva de YouTube</option></select></label>
   <label>Velocidad <input type="range" id="rate" min="0.8" max="1.3" step="0.05" value="1.05"></label>
 </div>
 
@@ -180,6 +181,8 @@ $('#gvoice').value = store.get('jarvis:gvoice', 'Kore');
 $('#gvoice').onchange = (e) => store.set('jarvis:gvoice', e.target.value);
 $('#ykey').value = store.get('jarvis:ykey', '');
 $('#ykey').onchange = (e) => store.set('jarvis:ykey', e.target.value.trim());
+$('#ydest').value = store.get('jarvis:ydest', 'pagina');
+$('#ydest').onchange = (e) => store.set('jarvis:ydest', e.target.value);
 
 function stopSpeaking() {
   speaking = false;
@@ -505,20 +508,32 @@ const TOOLS_WEB = [
 ];
 
 /* ---------- YouTube dentro de la página ---------- */
-const YT = { list: [], i: 0, vol: 100, warned: false };
+const YT = { list: [], i: 0, vol: 100, warned: false, ext: false };
 const decodeHtml = (t) => { const x = document.createElement('textarea'); x.innerHTML = t; return x.value; };
 function ytCmd(func, args = []) {
   try { $('#yt').contentWindow.postMessage(JSON.stringify({ event: 'command', func, args }), '*'); } catch {}
 }
 function ytPlay(i) {
   const v = YT.list[i]; if (!v) return false;
-  YT.i = i; YT.vol = 100;
+  YT.i = i; YT.vol = 100; YT.ext = false;
   $('#yt').src = 'https://www.youtube.com/embed/' + v.id + '?autoplay=1&playsinline=1&rel=0&enablejsapi=1&origin=' + encodeURIComponent(location.origin);
   $('#ptitle').textContent = v.title; $('#player').hidden = false; document.body.classList.add('playing');
   return true;
 }
-function ytClose() { $('#yt').src = 'about:blank'; $('#player').hidden = true; document.body.classList.remove('playing'); YT.list = []; }
+function ytClose() { $('#yt').src = 'about:blank'; $('#player').hidden = true; document.body.classList.remove('playing'); YT.list = []; YT.ext = false; }
 $('#pclose').onclick = ytClose;
+function ytOpenWindow(i) {
+  const v = YT.list[i]; if (!v) return 'No hay más resultados.';
+  YT.i = i; YT.ext = true;
+  if (!$('#player').hidden) { $('#yt').src = 'about:blank'; $('#player').hidden = true; document.body.classList.remove('playing'); }
+  const url = 'https://www.youtube.com/watch?v=' + v.id + '&autoplay=1';
+  let w = null;
+  try { w = window.open(url, '_blank'); if (w) w.opener = null; } catch {}
+  addEl('chip', 'Abrir en YouTube: ' + v.title, url);
+  return w
+    ? `Abrí "${v.title}" de ${v.canal} en una pestaña nueva de YouTube.`
+    : `El navegador bloqueó la ventana nueva. Dile al usuario que permita las ventanas emergentes de este sitio (icono en la barra de direcciones) o que pulse el enlace que apareció en pantalla para ver "${v.title}".`;
+}
 async function ytSearch(q) {
   const key = $('#ykey').value.trim() || cfg().key;
   if (!key) throw new Error('sin_clave');
@@ -530,12 +545,14 @@ async function ytSearch(q) {
 }
 TOOLS_WEB.push(
   { name: 'reproducir_youtube', description: 'Busca en YouTube y reproduce el primer resultado dentro de esta página (música, videos, canciones). Úsala cuando pidan poner o reproducir algo.',
-    inputSchema: { type: 'object', properties: { consulta: str('Qué reproducir, por ejemplo: canción y artista') }, required: ['consulta'] },
-    execute: async ({ consulta }) => {
+    inputSchema: { type: 'object', properties: { consulta: str('Qué reproducir, por ejemplo: canción y artista'), destino: { type: 'string', enum: ['pagina', 'ventana'], description: 'Dónde reproducirlo. Usa ventana si el usuario pide abrir YouTube en una ventana o pestaña nueva; si no dice nada, omítelo.' } }, required: ['consulta'] },
+    execute: async ({ consulta, destino }) => {
       try {
         const list = await ytSearch(consulta);
         if (!list.length) return 'No encontré resultados reproducibles para esa búsqueda.';
-        YT.list = list; ytPlay(0);
+        YT.list = list;
+        if ((destino || $('#ydest').value) === 'ventana') return ytOpenWindow(0);
+        ytPlay(0);
         return `Reproduciendo "${list[0].title}" de ${list[0].canal}. Otros resultados disponibles con "siguiente": ${list.slice(1).map((x) => x.title).join(' | ')}`;
       } catch (e) {
         if (!YT.warned) {
@@ -549,6 +566,11 @@ TOOLS_WEB.push(
   { name: 'controlar_reproductor', description: 'Controla el video que se reproduce en esta página: pausar, reanudar, cerrar, siguiente, anterior, subir_volumen, bajar_volumen, silenciar, activar_sonido.',
     inputSchema: { type: 'object', properties: { accion: { type: 'string', enum: ['pausar', 'reanudar', 'cerrar', 'siguiente', 'anterior', 'subir_volumen', 'bajar_volumen', 'silenciar', 'activar_sonido'] } }, required: ['accion'] },
     execute: ({ accion }) => {
+      if (YT.ext && YT.list.length) {
+        if (accion === 'siguiente') return ytOpenWindow((YT.i + 1) % YT.list.length);
+        if (accion === 'anterior') return ytOpenWindow((YT.i - 1 + YT.list.length) % YT.list.length);
+        return 'El video está en otra pestaña de YouTube y desde aquí no puedo controlarlo (pausa, volumen). Solo puedo abrir el siguiente o el anterior.';
+      }
       if ($('#player').hidden) return 'No hay ningún video reproduciéndose.';
       const go = (i) => { const n = YT.list.length; return n && ytPlay((i + n) % n) ? 'Reproduciendo: ' + YT.list[YT.i].title : 'No hay más resultados.'; };
       switch (accion) {
@@ -590,7 +612,7 @@ function instrucciones() {
   return `Te llamas ELIX. Eres el asistente personal de voz del usuario. Háblale de tú, en español natural, cálido y con un toque de ingenio sutil, nunca servil.
 Tus respuestas se leen en voz alta: frases cortas (una o dos), sin markdown, sin listas, sin emojis, sin URLs. Si algo exige una respuesta larga, resume lo esencial y ofrece ampliar.
 Cuando pidan algo que puedas hacer con tus herramientas, hazlo de inmediato y confirma en pocas palabras. Nunca digas que hiciste algo que no ejecutaste. Si una herramienta responde que fue SIMULADA, dilo con naturalidad: aún no está disponible en esta versión web, llegará con la de escritorio. Si algo es ambiguo, haz una sola pregunta corta.
-Para poner música o videos usa reproducir_youtube: se reproduce dentro de esta misma página. Si hay un video sonando, pausa, volumen y cambio de video se controlan con controlar_reproductor.
+Para poner música o videos usa reproducir_youtube: por defecto se reproduce dentro de esta página, y si el usuario pide abrir YouTube en una ventana o pestaña nueva usa destino ventana (el navegador puede pedir permitir ventanas emergentes). Si hay un video sonando, pausa, volumen y cambio de video se controlan con controlar_reproductor.
 No inventes datos actuales (noticias, clima): dilo, o abre una búsqueda si el usuario quiere.
 Entorno: versión web de pruebas dentro del navegador. Fecha y hora: ${new Date().toLocaleString('es', { dateStyle: 'full', timeStyle: 'short' })}.`;
 }
