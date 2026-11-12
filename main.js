@@ -111,7 +111,7 @@ const VOL_CS = [
   'interface IMMDevice { int Activate(ref Guid id, int clsCtx, int activationParams, out IAudioEndpointVolume aev); }',
   '[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
   'interface IMMDeviceEnumerator { int f(); int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice endpoint); }',
-  '[ComImport, Guid("BCDE0395-E52F-49B1-8A5D-93FA4F1C6D1A")] class MMDeviceEnumeratorComObject { }',
+  '[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] class MMDeviceEnumeratorComObject { }',
   'public class Vol {',
   '  static IAudioEndpointVolume Ep() {',
   '    var en = new MMDeviceEnumeratorComObject() as IMMDeviceEnumerator; IMMDevice dev;',
@@ -123,16 +123,23 @@ const VOL_CS = [
   '  public static bool GetMute() { bool b; Marshal.ThrowExceptionForHR(Ep().GetMute(out b)); return b; }',
   '  public static void SetMute(bool b) { Guid g = Guid.Empty; Marshal.ThrowExceptionForHR(Ep().SetMute(b, ref g)); } }',
 ].join('\n');
+// PowerShell devuelve los errores en formato CLIXML: se extrae solo el texto del error
+function cleanPsErr(raw) {
+  let s = String(raw || '');
+  if (/CLIXML/.test(s)) {
+    const errs = [...s.matchAll(/<S S="Error">([\s\S]*?)<\/S>/g)].map((x) => x[1]);
+    s = errs.length ? errs.join(' ') : '';
+  }
+  s = s.replace(/_x000D_|_x000A_/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&')
+    .replace(/<[^>]+>/g, ' ').replace(/[A-Za-z0-9+\/=]{60,}/g, '').replace(/\s+/g, ' ').trim();
+  return s.slice(0, 320);
+}
 const PS_EXE = require('path').join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
 function psRun(script, timeout = 30000) {
-  const enc = Buffer.from(script, 'utf16le').toString('base64');
-  return new Promise((res, rej) => execFile(PS_EXE, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', enc],
+  const enc = Buffer.from("$ProgressPreference='SilentlyContinue'\n" + script, 'utf16le').toString('base64');
+  return new Promise((res, rej) => execFile(PS_EXE, ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', enc],
     { windowsHide: true, timeout, maxBuffer: 4 * 1024 * 1024 }, (err, out, errOut) => {
-      if (err && !String(out || '').trim()) {
-        let why = err.killed ? 'tiempo agotado' : String(errOut || err.message || 'sin respuesta');
-        why = why.replace(/[A-Za-z0-9+\/=]{60,}/g, '').replace(/\s+/g, ' ').trim().slice(0, 160) || 'sin respuesta';
-        return rej(new Error(why));
-      }
+      if (err && !String(out || '').trim()) return rej(new Error(err.killed ? 'tiempo agotado' : (cleanPsErr(errOut || err.message) || 'sin respuesta')));
       res(String(out || ''));
     }));
 }
@@ -197,13 +204,12 @@ function psVolume(cmd, value) {
     '$now=[math]::Round([Vol]::Get()*100); $m=[Vol]::GetMute()',
     'Write-Output ("VOL:{0}|{1}" -f $now,[int]$m)',
   ].join('\n');
-  const enc = Buffer.from(script, 'utf16le').toString('base64');
-  return new Promise((res, rej) => execFile(PS_EXE, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', enc],
+  const enc = Buffer.from("$ProgressPreference='SilentlyContinue'\n" + script, 'utf16le').toString('base64');
+  return new Promise((res, rej) => execFile(PS_EXE, ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', enc],
     { windowsHide: true, timeout: 30000 }, (err, out, errOut) => {
       const r = /VOL:(\d+)\|([01])/.exec(String(out || ''));
       if (r) return res({ vol: +r[1], mute: r[2] === '1' });
-      let why = err && err.killed ? 'tiempo agotado' : String(errOut || (err && err.message) || 'sin respuesta');
-      why = why.replace(/[A-Za-z0-9+\/=]{60,}/g, '').replace(/\s+/g, ' ').trim().slice(0, 160) || 'sin respuesta';
+      const why = err && err.killed ? 'tiempo agotado' : (cleanPsErr(errOut || (err && err.message)) || 'el script no devolvió el volumen');
       console.error('Volumen (Core Audio):', why);
       rej(new Error(why));
     }));
