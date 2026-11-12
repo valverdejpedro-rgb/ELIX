@@ -6,6 +6,7 @@ const path = require('path');
 const os = require('os');
 const { spawn, execFile } = require('child_process');
 const browser = require('./browser');
+const { proxyFetch } = require('./netproxy');
 
 // Se conserva la carpeta de datos de ELIX (claves, ajustes, notas, sesión de YouTube) al cambiar el nombre a Radex
 app.setPath('userData', path.join(app.getPath('appData'), 'ELIX'));
@@ -45,6 +46,8 @@ ipcMain.handle('browser:run', (e, accion, args) => {
   return browser.run(String(accion), args && typeof args === 'object' ? args : {});
 });
 
+// Llamadas a Groq / OpenRouter / Gemini desde aquí (sin límites de CORS del navegador)
+ipcMain.handle('net:fetch', (e, req) => trusted(e) ? proxyFetch(req && typeof req === 'object' ? req : {}) : { status: 0, body: 'No permitido.' });
 
 // ---------------- Acciones de PC (las usa window.jarvisNative) ----------------
 // Solo hacen cosas concretas y seguras (abrir apps instaladas, carpetas, volumen, etc.).
