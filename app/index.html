@@ -421,7 +421,7 @@ function onFinal(text) {
     const m = text.match(WAKE_START); if (m && m[1].trim()) text = m[1].trim();
     send(text); return;
   }
-  if (pendingConfirm && Date.now() < pendingConfirm.exp) { // esperando un sí/no: se acepta sin decir “Radex”
+  if (pendingConfirm && Date.now() < pendingConfirm.exp + CONFIRM_GRACE_MS) { // esperando un sí/no (o recién vencido): se acepta sin decir “Radex”
     const mm = text.match(WAKE_START), t2 = mm && mm[1].trim() ? mm[1].trim() : text;
     if (classifyYesNo(t2)) { send(t2); return; }
   }
@@ -977,13 +977,16 @@ if (window.elixBrowser) { const l = $('#ydest') && $('#ydest').closest('label');
 // ---- Herramientas verificadas (registro del proceso principal: audio, aplicaciones, navegador avanzado…) ----
 let REG_TOOLS = [];
 let pendingConfirm = null; // acción de riesgo esperando el sí/no del usuario (se responde por voz)
+const CONFIRM_ANSWER_MS = 5000; // tiempo para responder, contado desde que Radex termina de hacer la pregunta
+const CONFIRM_GRACE_MS = 15000; // tras vencer, un “sí” tardío aún se entiende (para avisar que venció, nunca para ejecutar)
+let lastExpired = '';
 const REGLAS_VERIF = 'HERRAMIENTAS VERIFICADAS: sus resultados empiezan con VERIFICADO, HECHO PERO SIN VERIFICAR, FALLÓ, AMBIGUO o PENDIENTE DE CONFIRMACIÓN. Solo digas que algo quedó hecho si el resultado empieza con VERIFICADO; si dice HECHO PERO SIN VERIFICAR, dilo tal cual y no afirmes que quedó confirmado; si dice FALLÓ, explica el motivo en una frase. Si dice AMBIGUO, no ejecutes nada y pregúntale al usuario cuál de las opciones quiere. Si dice PENDIENTE DE CONFIRMACIÓN, hazle al usuario esa pregunta en una frase y espera: el sistema procesa su sí o no; no repitas la herramienta ni la confirmes tú.';
 if (window.elixTools) window.elixTools.catalog().then((list) => {
   REG_TOOLS = (list || []).map((d) => ({
     name: d.name, description: d.description, inputSchema: d.inputSchema,
     execute: async (input) => {
       const r = await window.elixTools.run(d.name, input || {});
-      if (r && r.pending) pendingConfirm = { resumen: r.pending.resumen, exp: Date.now() + r.pending.ttl };
+      if (r && r.pending) { const hard = Date.now() + r.pending.ttl; pendingConfirm = { resumen: r.pending.resumen, exp: hard, hard }; }
       return (r && r.text) || 'Sin respuesta del sistema.';
     },
   }));
@@ -1005,8 +1008,14 @@ function classifyYesNo(t) {
 function takePendingConfirm(text) {
   if (!pendingConfirm) return null;
   const p = pendingConfirm; pendingConfirm = null;
-  const k = Date.now() > p.exp ? null : classifyYesNo(text);
-  if (!k) { try { window.elixTools.confirm(false); } catch {} } // dijo otra cosa o venció: se cancela
+  const now = Date.now();
+  const k = now > p.exp + CONFIRM_GRACE_MS ? null : classifyYesNo(text);
+  if (now > p.exp) { // venció: NUNCA se ejecuta; se cancela en el sistema y, si dijo sí, se le avisa
+    try { window.elixTools.confirm(false); } catch {}
+    if (k === 'yes') { lastExpired = p.resumen || ''; return 'expired'; }
+    return k; // 'no' tardío: se cancela con normalidad; otra cosa: sigue la conversación normal
+  }
+  if (!k) { try { window.elixTools.confirm(false); } catch {} } // dijo otra cosa: se cancela
   return k;
 }
 async function resolveConfirm(yes) {
@@ -1014,6 +1023,8 @@ async function resolveConfirm(yes) {
   const r = await window.elixTools.confirm(yes);
   addEl('chip', 'confirmación ' + (yes ? 'aceptada' : 'rechazada') + ': ' + String((r && r.mensaje) || '').slice(0, 600));
   if (!r) return 'No obtuve respuesta del sistema.';
+  if (r.expired) return 'Esa confirmación ya venció, así que no hice nada. Si todavía lo quieres, pídemelo otra vez.';
+  if (r.none) return yes ? 'No tengo nada pendiente de confirmar.' : 'Vale, no hice nada.'; // p. ej. un “no” tardío: ya estaba cancelado
   if (r.cancelled) return 'Vale, lo cancelé. No hice nada.';
   if (!r.ok) return 'No pude hacerlo. ' + r.mensaje;
   return r.verified ? r.mensaje : r.mensaje + ' Ojo: no pude comprobar que haya quedado así.';
@@ -1201,7 +1212,10 @@ async function send(text) {
   try {
     const yn = takePendingConfirm(text); // ¿está respondiendo a una confirmación pendiente?
     if (yn) {
-      const reply = await resolveConfirm(yn === 'yes');
+      const reply = yn === 'expired'
+        ? (addEl('chip', 'confirmación vencida: no se hizo nada' + (lastExpired ? ' (' + lastExpired.slice(0, 200) + ')' : '')),
+           'Esa confirmación ya venció, así que no hice nada' + (lastExpired ? ' (' + lastExpired.replace(/[.\s]+$/, '') + ')' : '') + '. Si todavía lo quieres, pídemelo otra vez.')
+        : await resolveConfirm(yn === 'yes');
       history = trim([...history, { role: 'assistant', content: reply }]);
       addLine('jarvis', reply);
       await speak(reply);
@@ -1227,6 +1241,8 @@ async function send(text) {
     history = trim([...history, { role: 'assistant', content: reply }]);
     addLine('jarvis', reply);
     await speak(reply);
+    // Si la respuesta era la pregunta de una confirmación: tiene 5 s desde que termina de hablar (nunca más de 10 s desde la orden)
+    if (pendingConfirm && pendingConfirm.hard) pendingConfirm.exp = Math.min(pendingConfirm.hard, Date.now() + CONFIRM_ANSWER_MS);
   } catch (e) {
     history = history.slice(0, Math.max(0, turnStart - 1));
     const msg = e?.code === 'not_granted' ? 'Necesito tu permiso para usar a Claude como cerebro. Vuelve a intentarlo y acepta.'
