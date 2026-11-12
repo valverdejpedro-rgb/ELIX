@@ -408,6 +408,7 @@ function onFinal(text) {
       if (m) text = m[1].trim();
       else if (!document.body.classList.contains('playing') && (m = text.match(WAKE_END))) text = m[1].trim();
       else { hint('Oí: «' + text + '». Empieza diciendo “Radex”.'); return; }
+      if (!text && document.body.classList.contains('playing')) { hint('Dime la orden completa, por ejemplo: «Radex, pausa».'); return; }
       if (!text) { ear.stop(); speak('Dime.').then(() => { ear.awakeUntil = Date.now() + AWAKE_MS; afterTurn(); }); return; }
     }
   }
@@ -507,7 +508,7 @@ async function transcribeGroq(wav) {
       timeout: 15000, headers: { authorization: 'Bearer ' + key },
       form: {
         fields: { model: 'whisper-large-v3-turbo', language: 'es', temperature: '0', response_format: 'verbose_json',
-          prompt: 'Radex. Oye Radex, abre YouTube. Radex, pon música. Radex, sube el volumen.' },
+          prompt: 'Radex.' }, // solo el nombre: con frases de órdenes, Whisper las “inventaba” al oír música
         file: { bytes: wav, type: 'audio/wav', name: 'voz.wav' },
       },
     });
@@ -520,7 +521,7 @@ async function transcribeGroq(wav) {
       : r.status === 429 ? 'Groq llegó al límite gratuito de transcripción por ahora.' : `Error ${r.status} de Groq al transcribir. ${det}`.trim() };
   }
   const segs = r.data.segments || [];
-  if (segs.length && segs.every((s) => s.no_speech_prob > 0.6 || s.avg_logprob < -1.2)) return ''; // solo ruido
+  if (segs.length && segs.every((s) => s.no_speech_prob > 0.45 || s.avg_logprob < -0.9 || s.compression_ratio > 2.2)) return ''; // solo ruido, música o texto inventado
   const t = (r.data.text || '').trim();
   return t.length > 1 && !HALLU.test(t) ? t : '';
 }
