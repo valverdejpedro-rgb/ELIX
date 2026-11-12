@@ -218,7 +218,7 @@ function setupUpdater() {
     // queda lista y se instala al cerrar, o pulsando la versión en pantalla.
     if (Date.now() - startedAt < 2 * 60 * 1000) setTimeout(() => autoUpdater.quitAndInstall(true, true), 2500);
   });
-  autoUpdater.on('error', (e) => { console.error('Updater:', e && e.message); sendStatus({ estado: 'error' }); });
+  autoUpdater.on('error', (e) => { console.error('Updater:', e && e.message); sendStatus({ estado: 'error', detalle: String((e && e.message) || e).split('\n')[0].slice(0, 220) }); });
   autoUpdater.checkForUpdates().catch(() => {});
   setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 60 * 60 * 1000); // cada hora
 }

@@ -26,7 +26,7 @@ El ELIX ya instalado detecta la versión nueva, la descarga y se reinicia solo.
 3. En "Cerebro" elige "Groq (gratis, recomendado)" y pega la clave en "Clave".
    El mismo panel pide la clave de Gemini solo si usas la voz de Gemini.
 4. "Oído" en Automático usa Groq Whisper si hay clave de Groq (si no, Gemini).
-Tras una respuesta Radex sigue atento 12 s: puedes continuar sin repetir "Radex".
+Radex responde solo cuando empiezas o terminas la orden diciendo "Radex" (ya no queda atento después de responder).
 
 ## Probar en local
 npm install && npm start
