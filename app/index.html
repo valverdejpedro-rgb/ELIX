@@ -131,6 +131,7 @@
 </form>
 <div class="opts">
   <label><input type="checkbox" id="wake"> Solo si digo “Radex”</label>
+  <label title="Solo obedece lo que digas mientras mantienes pulsada la tecla Ctrl"><input type="checkbox" id="ptt"> Solo mientras mantengo Ctrl</label>
   <label><input type="checkbox" id="mute"> Sin voz</label>
   <label>Avatar <select id="avatar" aria-label="Avatar"><option value="orbe">Orbe</option><option value="mujer">Holograma mujer</option><option value="hombre">Holograma hombre</option></select></label>
   <label>Oído <select id="earsel" aria-label="Motor de oído"><option value="auto">Automático</option><option value="groq">Groq Whisper (rápido)</option><option value="gemini">Gemini</option></select></label>
@@ -376,7 +377,7 @@ function updateMic() {
 function afterTurn() {
   if (listening) ear.start(); else setState('idle', 'En espera');
 }
-const WAKE = '(?:r[aeá]d[eé](?:x|cs|ks|s|z|cx)|ra[ -]dex)';
+const WAKE = '(?:r[aeá]d[eé](?:x|cx|cs|ks|k|ck)|ra[ -]d[eé](?:x|cs|ks))'; // exige la terminación “x/cs/ks”: así “redes” o “rades” no la activan
 const WAKE_START = new RegExp('^(?:(?:oye|hey|ok|hola|disculpa)[ ,]+)?' + WAKE + '\\b[,.!¡¿:;\\s-]*(.*)$', 'i');
 const WAKE_END = new RegExp('^(.*?)[,.!¡¿:;\\s-]+' + WAKE + '[.!?¡¿\\s]*$', 'i');
 let hintT = null;
@@ -385,8 +386,19 @@ function hint(t) {
   hintT = setTimeout(() => { if ($('#interim').textContent === t) $('#interim').textContent = ''; }, 5000);
 }
 const AWAKE_MS = 0; // sin ventana de atención: cada orden debe empezar (o terminar) con “Radex”
+const PTT = { on: store.get('ptt', '0') === '1', down: false, last: 0 };
+$('#ptt').checked = PTT.on;
+$('#ptt').onchange = (e) => { PTT.on = e.target.checked; store.set('ptt', PTT.on ? '1' : '0'); };
+addEventListener('keydown', (e) => { if (e.key === 'Control' && !e.repeat) { PTT.down = true; PTT.last = Date.now(); } });
+addEventListener('keyup', (e) => { if (e.key === 'Control') { PTT.down = false; PTT.last = Date.now(); } });
+addEventListener('blur', () => { PTT.down = false; });
 function onFinal(text) {
   if (!text) return;
+  if (PTT.on) { // solo se hace caso a lo dicho mientras mantienes Ctrl (música o voces ajenas se ignoran)
+    if (!(PTT.down || Date.now() - PTT.last < 3500)) { hint('Ignoré lo que oí. Mantén Ctrl mientras hablas.'); return; }
+    const m = text.match(WAKE_START); if (m && m[1].trim()) text = m[1].trim();
+    send(text); return;
+  }
   if ($('#wake').checked) {
     let m = text.match(WAKE_START);
     if (Date.now() < ear.awakeUntil) {
@@ -394,7 +406,7 @@ function onFinal(text) {
     } else {
       // Solo responde si dicen “Radex” al inicio (“Radex, busca…”) o al final (“…, Radex”)
       if (m) text = m[1].trim();
-      else if ((m = text.match(WAKE_END))) text = m[1].trim();
+      else if (!document.body.classList.contains('playing') && (m = text.match(WAKE_END))) text = m[1].trim();
       else { hint('Oí: «' + text + '». Empieza diciendo “Radex”.'); return; }
       if (!text) { ear.stop(); speak('Dime.').then(() => { ear.awakeUntil = Date.now() + AWAKE_MS; afterTurn(); }); return; }
     }
@@ -414,7 +426,7 @@ async function startMeter() {
   if (meter || meterBusy || !navigator.mediaDevices) return;
   meterBusy = true;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false } });
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const src = ctx.createMediaStreamSource(stream);
     const an = ctx.createAnalyser(); an.fftSize = 512; src.connect(an);
