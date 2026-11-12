@@ -43,45 +43,36 @@
   @media (prefers-reduced-motion:reduce){.ring,.core{animation:none!important}}
 
 
-  /* ---------- Avatares holográficos ---------- */
-  .holo{display:none;position:absolute;inset:0;pointer-events:none}
-  .holo svg{width:100%;height:100%;overflow:visible;animation:flick 6s steps(1) infinite}
+  /* ---------- Avatares holográficos (imágenes) ---------- */
   body:not([data-avatar=orbe]) .ring,body:not([data-avatar=orbe]) .core{display:none}
-  body:not([data-avatar=orbe]) .orb{width:min(25vmin,210px);aspect-ratio:3/4;border-radius:14px}
-  body:not([data-avatar=orbe]).playing .orb{width:min(12vmin,86px)}
-  body[data-avatar=mujer] #holoMujer,body[data-avatar=hombre] #holoHombre{display:block}
-  .holo .fig{animation:floaty 5s ease-in-out infinite}
-  .holo svg{filter:drop-shadow(0 0 7px var(--cy))}
-  .holo .fl{fill:url(#hgrad);stroke:var(--cy);stroke-width:1.6;stroke-linejoin:round}
-  .holo .ln{fill:none;stroke:var(--cy);stroke-width:1.4;stroke-linecap:round;opacity:.8}
-  .holo .gl{fill:var(--hi);stroke:var(--cy);stroke-width:1}
-  .holo .eye{fill:none;stroke:var(--hi);stroke-width:2.2;stroke-linecap:round}
-  .holo .vis{fill:color-mix(in srgb,var(--cy) 55%,transparent);stroke:var(--hi);stroke-width:1.6}
-  .holo .mouth{fill:var(--hi);transform-box:fill-box;transform-origin:center;transform:scaleY(.5)}
-  .holo .bar{fill:var(--cy);transform-box:fill-box;transform-origin:center bottom;transform:scaleY(.25)}
-  .holo .beam{fill:url(#bgrad)}
-  .holo .base{fill:none;stroke:var(--cy);stroke-width:1.5}
-  .holo .base.d{stroke-dasharray:7 9;animation:dash 3s linear infinite}
-  @keyframes dash{to{stroke-dashoffset:-64}}
-  .holo .band{fill:url(#sgrad);opacity:.5;animation:sweep 3.6s linear infinite}
-  body[data-state=thinking] .holo .band{animation-duration:1.1s}
-  body[data-state=thinking] .holo .base.d{animation-duration:.8s}
-  body[data-state=listening] .holo svg{filter:drop-shadow(0 0 12px var(--cy))}
-  body[data-state=speaking] .holo svg{filter:drop-shadow(0 0 15px var(--cy))}
-  body[data-state=speaking] .holo .mouth{animation:mouth .32s ease-in-out infinite}
-  body[data-state=speaking] .holo .bar{animation:bars .45s ease-in-out infinite}
-  body[data-state=speaking] .holo .bar:nth-child(2){animation-delay:-.12s}
-  body[data-state=speaking] .holo .bar:nth-child(3){animation-delay:-.27s}
-  body[data-state=speaking] .holo .bar:nth-child(4){animation-delay:-.06s}
-  body[data-state=speaking] .holo .bar:nth-child(5){animation-delay:-.2s}
-  body[data-state=speaking] .holo .vis{fill:color-mix(in srgb,var(--cy) 85%,transparent)}
-  @keyframes floaty{50%{transform:translateY(-4px)}}
-  @keyframes sweep{from{transform:translateY(-60px)}to{transform:translateY(400px)}}
-  @keyframes flick{0%,100%{opacity:1}91%{opacity:.82}93%{opacity:.55}95%{opacity:.95}}
-  @keyframes mouth{50%{transform:scaleY(3.2)}}
-  @keyframes bars{50%{transform:scaleY(1.5)}}
+  body:not([data-avatar=orbe]) .orb{width:auto;border-radius:12px;--h:min(34vmin,290px)}
+  body[data-avatar=mujer] .orb{height:var(--h);aspect-ratio:515/474;--h:min(38vmin,320px)}
+  body[data-avatar=hombre] .orb{--h:min(42vmin,340px);height:var(--h);aspect-ratio:335/594}
+  body:not([data-avatar=orbe]).playing .orb{--h:min(15vmin,120px)!important}
+  .holo{display:none;position:absolute;inset:0;pointer-events:none}
+  body:not([data-avatar=orbe]) .holo{display:block}
+  .holo canvas{position:absolute;inset:-12% -22%;width:144%;height:124%}
+  .hbeam{position:absolute;left:8%;right:8%;bottom:2%;height:92%;clip-path:polygon(18% 100%,82% 100%,100% 0,0 0);background:linear-gradient(to top,color-mix(in srgb,var(--cy) 26%,transparent),transparent 85%);opacity:.7}
+  .hbase{position:absolute;left:-6%;right:-6%;bottom:-3%;height:9%}
+  .hbase i{position:absolute;inset:0;border-radius:50%;border:1.5px solid var(--cy);box-shadow:0 0 14px var(--cy),inset 0 0 12px color-mix(in srgb,var(--cy) 50%,transparent)}
+  .hbase i+i{inset:-22% -10%;border-style:dashed;border-width:1px;opacity:.55;animation:hpulse 3s ease-in-out infinite}
+  .hfig{position:absolute;inset:0;filter:drop-shadow(0 0 9px var(--cy));animation:hfloat 6s ease-in-out infinite;transform-origin:50% 100%}
+  body[data-avatar=hombre] .hfig{animation-name:hbreath;animation-duration:5s}
+  .hfig img{display:block;width:100%;height:100%;object-fit:contain;animation:hflick 7s steps(1) infinite;-webkit-user-drag:none;user-select:none}
+  .hfig i{position:absolute;inset:0;-webkit-mask:var(--img) center/contain no-repeat;mask:var(--img) center/contain no-repeat}
+  .hscan{background:repeating-linear-gradient(to bottom,rgba(0,8,20,.22) 0 1px,transparent 1px 4px)}
+  .hband{background:linear-gradient(to bottom,transparent,rgba(255,255,255,.4) 50%,transparent) 0 -30%/100% 24% no-repeat;mix-blend-mode:screen;animation:hsweep 4.2s linear infinite}
+  body[data-state=thinking] .hband{animation-duration:1.2s}
+  body[data-state=thinking] .hfig{filter:drop-shadow(0 0 14px var(--cy))}
+  body[data-state=listening] .hfig{filter:drop-shadow(0 0 12px var(--cy))}
+  body[data-state=speaking] .hfig{filter:drop-shadow(0 0 calc(8px + var(--lvl,.4) * 14px) var(--cy))}
+  body[data-state=speaking] .hfig img{filter:brightness(calc(1 + var(--lvl,.3) * .16))}
+  @keyframes hfloat{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-3.5%) rotate(.7deg)}}
+  @keyframes hbreath{0%,100%{transform:translateY(0) scaleY(1)}50%{transform:translateY(-.8%) scaleY(1.012)}}
+  @keyframes hsweep{to{background-position:0 130%}}
+  @keyframes hpulse{50%{opacity:.15;transform:scale(1.05)}}
+  @keyframes hflick{0%,100%{opacity:1;transform:none}90%{opacity:.86}92%{opacity:.6;transform:translateX(1.5px)}94%{opacity:.95;transform:translateX(-1px)}96%{opacity:1;transform:none}}
   @media (prefers-reduced-motion:reduce){.holo *{animation:none!important}}
-
   #log{width:100%;max-width:760px;flex:1;min-height:0;overflow-y:auto;padding:8px 20px;display:flex;flex-direction:column;gap:10px}
   .line{max-width:88%;padding:9px 14px;border-radius:12px;background:var(--panel);border:1px solid var(--line);overflow-wrap:anywhere}
   .line.user{align-self:flex-end;color:var(--mute)}
@@ -115,55 +106,14 @@
 <body data-state="idle">
 <header><div style="display:flex;gap:12px;align-items:baseline"><h1 id="logo" style="user-select:none">RADEX</h1><span id="ver" title="Versión instalada (clic para buscar actualizaciones)"></span></div><span id="status" aria-live="polite">En espera</span></header>
 
-<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
-      <linearGradient id="hgrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--cy);stop-opacity:.42"/><stop offset="1" style="stop-color:var(--cy);stop-opacity:.07"/></linearGradient>
-      <linearGradient id="bgrad" x1="0" y1="1" x2="0" y2="0"><stop offset="0" style="stop-color:var(--cy);stop-opacity:.30"/><stop offset="1" style="stop-color:var(--cy);stop-opacity:0"/></linearGradient>
-      <linearGradient id="sgrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--cy);stop-opacity:0"/><stop offset=".5" style="stop-color:#fff;stop-opacity:.45"/><stop offset="1" style="stop-color:var(--cy);stop-opacity:0"/></linearGradient>
-      <pattern id="lines" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="4" fill="#fff"/><rect y="2.6" width="4" height="1.3" fill="#000" fill-opacity=".62"/></pattern>
-      <mask id="scan" maskUnits="userSpaceOnUse" x="0" y="0" width="300" height="400"><rect width="300" height="400" fill="url(#lines)"/></mask>
-    </defs></svg>
 <button class="orb" id="orb" aria-label="Interrumpir a Radex">
   <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span><span class="core"></span>
-  <span class="holo" id="holoMujer" aria-hidden="true"><svg viewBox="0 0 300 400" xmlns="http://www.w3.org/2000/svg">
-      <path class="beam" d="M72 392 L228 392 L284 26 L16 26 Z"/>
-      <ellipse class="base" cx="150" cy="392" rx="96" ry="12"/><ellipse class="base d" cx="150" cy="392" rx="116" ry="15"/>
-      <g class="fig" mask="url(#scan)">
-        <path class="fl" d="M60 392 L66 330 Q70 296 112 284 L132 276 L168 276 L188 284 Q230 296 234 330 L240 392 Z"/>
-        <path class="fl" d="M133 222 L133 278 Q150 292 167 278 L167 222 Z"/>
-        <path class="fl" d="M108 160 Q108 108 150 108 Q192 108 192 160 Q192 205 168 224 Q150 234 132 224 Q108 205 108 160 Z"/>
-        <path class="fl" d="M103 170 Q92 96 150 88 Q208 96 197 170 Q204 214 192 254 Q199 204 188 160 Q180 122 156 118 Q132 126 122 150 Q112 160 110 190 Q108 222 108 254 Q96 214 103 170 Z"/>
-        <path class="ln" d="M120 150 Q146 112 186 132 M126 140 Q150 120 180 138"/>
-        <path class="ln" d="M104 190 Q100 230 106 262 M196 190 Q200 230 194 262 M112 200 Q110 236 114 268 M188 200 Q190 236 186 268"/>
-        <path class="eye" d="M124 168 Q135 160 145 168 M155 168 Q165 160 176 168"/>
-        <circle class="gl" cx="134" cy="167" r="2.6"/><circle class="gl" cx="166" cy="167" r="2.6"/>
-        <path class="ln" d="M150 176 L146 192 L152 192"/>
-        <ellipse class="mouth" cx="150" cy="208" rx="8" ry="1.6"/>
-        <path class="ln" d="M112 296 L132 318 L132 356 M188 296 L168 318 L168 356 M150 284 L150 392"/>
-        <circle class="gl" cx="150" cy="330" r="6"/><circle class="ln" cx="150" cy="330" r="12"/>
-        <path class="ln" d="M84 340 L98 340 L106 352 M216 340 L202 340 L194 352"/>
-      </g>
-      <rect class="band" x="40" y="0" width="220" height="50"/>
-  </svg></span>
-  <span class="holo" id="holoHombre" aria-hidden="true"><svg viewBox="0 0 300 400" xmlns="http://www.w3.org/2000/svg">
-      <path class="beam" d="M72 392 L228 392 L284 26 L16 26 Z"/>
-      <ellipse class="base" cx="150" cy="392" rx="96" ry="12"/><ellipse class="base d" cx="150" cy="392" rx="116" ry="15"/>
-      <g class="fig" mask="url(#scan)">
-        <path class="fl" d="M40 392 L42 322 Q44 282 90 274 L128 268 L172 268 L210 274 Q256 282 258 322 L260 392 Z"/>
-        <path class="fl" d="M44 320 Q48 276 98 270 L112 302 Q80 304 60 342 Z"/>
-        <path class="fl" d="M256 320 Q252 276 202 270 L188 302 Q220 304 240 342 Z"/>
-        <path class="fl" d="M126 238 L126 274 L174 274 L174 238 Z"/>
-        <path class="ln" d="M126 250 H174 M126 262 H174"/>
-        <path class="fl" d="M100 172 Q96 94 150 88 Q204 94 200 172 L198 214 Q196 238 172 246 L128 246 Q104 238 102 214 Z"/>
-        <path class="ln" d="M150 88 V134 M128 98 Q150 92 172 98"/>
-        <path class="vis" d="M110 152 Q150 138 190 152 L185 184 Q150 198 115 184 Z"/>
-        <path class="ln" d="M120 160 Q150 150 180 160" style="stroke:#fff;opacity:.9"/>
-        <path class="ln" d="M118 206 H136 M118 215 H136 M164 206 H182 M164 215 H182 M150 200 V240"/>
-        <path class="fl" d="M108 290 L150 306 L192 290 L186 342 L150 360 L114 342 Z"/>
-        <g><rect class="bar" x="124" y="316" width="6" height="22" rx="2"/><rect class="bar" x="136" y="312" width="6" height="30" rx="2"/><rect class="bar" x="147" y="308" width="6" height="36" rx="2"/><rect class="bar" x="158" y="312" width="6" height="30" rx="2"/><rect class="bar" x="170" y="316" width="6" height="22" rx="2"/></g>
-        <path class="ln" d="M70 300 L82 330 M230 300 L218 330 M62 352 H96 M204 352 H238"/>
-      </g>
-      <rect class="band" x="40" y="0" width="220" height="50"/>
-  </svg></span>
+  <span class="holo" aria-hidden="true">
+    <canvas id="holoFx"></canvas>
+    <span class="hbeam"></span>
+    <span class="hfig"><img id="holoImg" alt="" draggable="false"><i class="hscan"></i><i class="hband"></i></span>
+    <span class="hbase"><i></i><i></i></span>
+  </span>
 </button>
 
 <div id="lvl" aria-hidden="true"><i></i></div>
@@ -182,7 +132,7 @@
 <div class="opts">
   <label><input type="checkbox" id="wake"> Solo si digo “Radex”</label>
   <label><input type="checkbox" id="mute"> Sin voz</label>
-  <label>Avatar <select id="avatar" aria-label="Avatar"><option value="orbe">Orbe</option><option value="mujer">Holograma (mujer)</option><option value="hombre">Holograma (soldado)</option></select></label>
+  <label>Avatar <select id="avatar" aria-label="Avatar"><option value="orbe">Orbe</option><option value="mujer">Holograma mujer</option><option value="hombre">Holograma hombre</option></select></label>
   <label>Oído <select id="earsel" aria-label="Motor de oído"><option value="auto">Automático</option><option value="groq">Groq Whisper (rápido)</option><option value="gemini">Gemini</option></select></label>
   <div id="apiCfg" style="display:none;gap:6px 18px;flex-wrap:wrap;align-items:center">
   <label>Cerebro
@@ -325,7 +275,7 @@ async function speakGemini(text) {
     if (ttsCtx.state === 'suspended') await ttsCtx.resume();
     const buf = ttsCtx.createBuffer(1, n, rate); buf.copyToChannel(f, 0);
     setState('speaking', 'Hablando');
-    await new Promise((res) => { const src = ttsCtx.createBufferSource(); src.buffer = buf; src.connect(ttsCtx.destination); src.onended = res; ttsSrc = src; src.start(); });
+    await new Promise((res) => { const src = ttsCtx.createBufferSource(); src.buffer = buf; src.connect(ttsCtx.destination); voiceLevelOn(ttsCtx, src); src.onended = res; ttsSrc = src; src.start(); });
     return true;
   } catch { ttsCool = Date.now() + 30000; return false; }
   finally { ttsSrc = null; }
@@ -619,13 +569,66 @@ $('#earsel').onchange = (e) => {
 
 /* ---------- Acciones ---------- */
 /* ---------- Avatar ---------- */
-const AVATARES = { orbe: 'orbe', mujer: 'holograma de mujer', hombre: 'holograma de soldado' };
+const AVATARES = { orbe: 'orbe', mujer: 'holograma de mujer', hombre: 'holograma de hombre' };
 function setAvatar(a) {
   if (!AVATARES[a]) a = 'orbe';
   document.body.dataset.avatar = a; $('#avatar').value = a; store.set('jarvis:avatar', a);
+  if (a !== 'orbe') { $('#holoImg').src = 'avatars/' + a + '.png'; $('.holo').style.setProperty('--img', 'url(avatars/' + a + '.png)'); }
+  fxKick();
   return a;
 }
 $('#avatar').onchange = (e) => setAvatar(e.target.value);
+
+// Nivel de la voz (0..1) para que el holograma "hable": --lvl en <body>
+let lvlAn = null, lvlBuf = null, lvlRaf = 0;
+function voiceLevelOn(ctx, src) {
+  try {
+    lvlAn = lvlAn || Object.assign(ctx.createAnalyser(), { fftSize: 512, smoothingTimeConstant: 0.6 });
+    lvlBuf = lvlBuf || new Uint8Array(lvlAn.fftSize);
+    src.connect(lvlAn);
+    cancelAnimationFrame(lvlRaf);
+    const tick = () => {
+      lvlAn.getByteTimeDomainData(lvlBuf);
+      let sum = 0; for (const v of lvlBuf) { const x = (v - 128) / 128; sum += x * x; }
+      document.body.style.setProperty('--lvl', Math.min(1, Math.sqrt(sum / lvlBuf.length) * 5).toFixed(2));
+      lvlRaf = requestAnimationFrame(tick);
+    };
+    tick();
+    src.addEventListener('ended', () => { cancelAnimationFrame(lvlRaf); document.body.style.removeProperty('--lvl'); });
+  } catch {}
+}
+
+// Partículas (puntos y ceros/unos) que suben alrededor del holograma; más rápidas al hablar o pensar
+const FX = { ps: [], raf: 0, w: 0, h: 0 };
+function fxKick() {
+  cancelAnimationFrame(FX.raf);
+  const cv = $('#holoFx'), on = document.body.dataset.avatar !== 'orbe' && !matchMedia('(prefers-reduced-motion:reduce)').matches;
+  if (!on) return;
+  const ctx = cv.getContext('2d'), dpr = Math.min(devicePixelRatio || 1, 2);
+  const size = () => { const r = cv.getBoundingClientRect(); FX.w = r.width; FX.h = r.height; cv.width = r.width * dpr; cv.height = r.height * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); };
+  size();
+  const mk = (init) => ({ x: Math.random() * FX.w, y: init ? Math.random() * FX.h : FX.h * (0.75 + Math.random() * 0.25),
+    v: 0.25 + Math.random() * 0.7, r: 0.8 + Math.random() * 1.8, a: 0.25 + Math.random() * 0.6, d: Math.random() < 0.3 ? (Math.random() < 0.5 ? '0' : '1') : '', ph: Math.random() * 6.28 });
+  FX.ps = Array.from({ length: 46 }, () => mk(true));
+  let t = 0;
+  const frame = () => {
+    const st = document.body.dataset.state, k = st === 'speaking' ? 2.2 : st === 'thinking' ? 3.2 : st === 'listening' ? 1.4 : 1;
+    ctx.clearRect(0, 0, FX.w, FX.h); t += 0.02;
+    const col = getComputedStyle(document.body).getPropertyValue('--cy').trim() || '#4fd8ff';
+    ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 6; ctx.font = '11px monospace';
+    FX.ps.forEach((p, i) => {
+      p.y -= p.v * k; p.x += Math.sin(t + p.ph) * 0.25;
+      if (p.y < -8) FX.ps[i] = mk(false);
+      ctx.globalAlpha = p.a * Math.min(1, p.y / (FX.h * 0.25)) ;
+      if (p.d) ctx.fillText(p.d, p.x, p.y); else { ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, 6.283); ctx.fill(); }
+    });
+    ctx.globalAlpha = 1;
+    FX.raf = document.hidden ? 0 : requestAnimationFrame(frame);
+  };
+  frame();
+}
+addEventListener('resize', () => fxKick());
+document.addEventListener('visibilitychange', () => { if (!document.hidden) fxKick(); });
 setAvatar(store.get('jarvis:avatar', 'orbe'));
 
 const COLORS = { cian: '#4fd8ff', azul: '#5b8cff', verde: '#5dffa4', rojo: '#ff5d6c', morado: '#b48cff', naranja: '#ff9b4f', rosa: '#ff7ac8', amarillo: '#ffe14f', blanco: '#f2f8ff' };
