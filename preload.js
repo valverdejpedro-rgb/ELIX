@@ -10,3 +10,11 @@ webFrame.executeJavaScript(
 contextBridge.exposeInMainWorld('elixBrowser', {
   run: (accion, args) => ipcRenderer.invoke('browser:run', accion, args),
 });
+
+// Versión instalada y estado de las actualizaciones
+contextBridge.exposeInMainWorld('elixApp', {
+  info: () => ipcRenderer.invoke('app:info'),
+  checkUpdate: () => ipcRenderer.invoke('app:check'),
+  installNow: () => ipcRenderer.invoke('app:install'),
+  onUpdate: (cb) => ipcRenderer.on('update:status', (_e, s) => cb(s)),
+});

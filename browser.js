@@ -34,9 +34,11 @@ async function ensure(nombre) {
   const ctx = await chromium.launchPersistentContext(dir, {
     executablePath: exe, headless: false, viewport: null,
     chromiumSandbox: true, // evita el aviso de --no-sandbox
-    args: ['--start-maximized', '--autoplay-policy=no-user-gesture-required'],
-    ignoreDefaultArgs: ['--enable-automation'],
+    args: ['--start-maximized', '--autoplay-policy=no-user-gesture-required', '--disable-blink-features=AutomationControlled'],
+    ignoreDefaultArgs: ['--enable-automation', '--disable-extensions', '--disable-component-update', '--disable-background-networking', '--disable-default-apps'],
   });
+  // Que YouTube vea un Chrome normal y no uno "controlado por automatización"
+  await ctx.addInitScript(() => { try { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); } catch {} });
   const page = ctx.pages()[0] || await ctx.newPage();
   const ses = { ctx, page };
   ctx.on('close', () => { delete sessions[name]; if (activeName === name) activeName = null; });
@@ -58,6 +60,19 @@ async function acceptConsent(page) {
 }
 
 const VIDEO = 'ytd-video-renderer a#video-title';
+
+// Si YouTube muestra "Se produjo un error", recarga la página (hasta 2 veces)
+async function recoverPlayer(page) {
+  for (let i = 0; i < 2; i++) {
+    await page.waitForTimeout(2500);
+    let bad = false;
+    try { bad = await page.locator('.ytp-error').first().isVisible({ timeout: 500 }); } catch {}
+    if (!bad) return i > 0 ? ' (recargué la página porque YouTube mostró un error)' : '';
+    await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+    await page.waitForSelector('video', { timeout: 15000 }).catch(() => {});
+  }
+  return ' (YouTube sigue mostrando un error; prueba con otro video)';
+}
 async function results(page, n = 5) {
   return page.$$eval(VIDEO, (els, n) => els.slice(0, n).map((e) => (e.getAttribute('title') || e.textContent || '').trim()), n);
 }
@@ -99,8 +114,8 @@ const actions = {
     const i = Math.max(1, Math.min(numero, lista.length)) - 1;
     await s.page.locator(VIDEO).nth(i).click();
     await s.page.waitForSelector('video', { timeout: 15000 });
-    await videoCmd(s.page, 'reanudar').catch(() => {});
-    return `Reproduciendo "${lista[i]}" en ${activeName}. Otros resultados: ${lista.filter((_, k) => k !== i).join(' | ')}`;
+    const nota = await recoverPlayer(s.page);
+    return `Reproduciendo "${lista[i]}" en ${activeName}${nota}. Otros resultados: ${lista.filter((_, k) => k !== i).join(' | ')}`;
   },
 
   async elegir({ numero }) {
@@ -110,7 +125,8 @@ const actions = {
     const i = Math.max(1, Math.min(numero || 1, lista.length)) - 1;
     await s.page.locator(VIDEO).nth(i).click();
     await s.page.waitForSelector('video', { timeout: 15000 });
-    return `Reproduciendo "${lista[i]}".`;
+    const nota = await recoverPlayer(s.page);
+    return `Reproduciendo "${lista[i]}"${nota}.`;
   },
 
   async video({ accion, valor }) {
@@ -119,6 +135,7 @@ const actions = {
       await s.page.locator('.ytp-next-button').first().click({ timeout: 4000 });
       return 'Pasé al siguiente video.';
     }
+    if (accion === 'recargar') { await s.page.reload({ waitUntil: 'domcontentloaded' }); return 'Recargué la página.' + await recoverPlayer(s.page); }
     if (accion === 'pantalla_completa') { await s.page.keyboard.press('f'); return 'Alterné pantalla completa.'; }
     if (accion === 'omitir_anuncio') {
       try { await s.page.locator('.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern').first().click({ timeout: 3000 }); return 'Anuncio omitido.'; }

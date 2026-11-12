@@ -30,12 +30,25 @@ function startServer() {
   });
 }
 
-// Control de navegadores: solo acepta llamadas de la propia ventana de ELIX
-ipcMain.handle('browser:run', (e, accion, args) => {
+// Solo acepta llamadas de la propia ventana de ELIX
+const trusted = (e) => {
   const u = (e.senderFrame && e.senderFrame.url) || '';
-  if (!u.startsWith(`http://localhost:${PORT}/`) && !u.startsWith('file://')) return 'No permitido.';
+  return u.startsWith(`http://localhost:${PORT}/`) || u.startsWith('file://');
+};
+ipcMain.handle('browser:run', (e, accion, args) => {
+  if (!trusted(e)) return 'No permitido.';
   return browser.run(String(accion), args && typeof args === 'object' ? args : {});
 });
+
+let lastStatus = { estado: 'inicio' };
+const sendStatus = (s) => { lastStatus = s; try { win && win.webContents.send('update:status', s); } catch {} };
+ipcMain.handle('app:info', (e) => trusted(e) ? { version: app.getVersion(), status: lastStatus } : null);
+ipcMain.handle('app:check', (e) => {
+  if (!trusted(e)) return;
+  if (!app.isPackaged) return sendStatus({ estado: 'dev' });
+  autoUpdater.checkForUpdates().catch(() => {});
+});
+ipcMain.handle('app:install', (e) => { if (trusted(e)) autoUpdater.quitAndInstall(true, true); });
 
 let win;
 async function createWindow() {
@@ -55,17 +68,24 @@ async function createWindow() {
 }
 
 // ---- Actualizaciones automáticas ----
+const startedAt = Date.now();
 function setupUpdater() {
   if (!app.isPackaged) return;
   autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true; // se instala sola al cerrar ELIX
-  autoUpdater.on('update-downloaded', () => {
-    // Reinicia e instala en cuanto la ventana quede libre
-    setTimeout(() => autoUpdater.quitAndInstall(true, true), 3000);
+  autoUpdater.autoInstallOnAppQuit = true; // si no se reinicia antes, se instala al cerrar ELIX
+  autoUpdater.on('checking-for-update', () => sendStatus({ estado: 'buscando' }));
+  autoUpdater.on('update-available', (i) => sendStatus({ estado: 'descargando', version: i.version, pct: 0 }));
+  autoUpdater.on('download-progress', (p) => sendStatus({ estado: 'descargando', pct: Math.round(p.percent) }));
+  autoUpdater.on('update-not-available', () => sendStatus({ estado: 'al-dia' }));
+  autoUpdater.on('update-downloaded', (i) => {
+    sendStatus({ estado: 'listo', version: i.version });
+    // Al abrir ELIX se reinicia solo; si ya lo estás usando (videos, etc.) no te interrumpe:
+    // queda lista y se instala al cerrar, o pulsando la versión en pantalla.
+    if (Date.now() - startedAt < 2 * 60 * 1000) setTimeout(() => autoUpdater.quitAndInstall(true, true), 2500);
   });
-  autoUpdater.on('error', (e) => console.error('Updater:', e && e.message));
-  autoUpdater.checkForUpdates();
-  setInterval(() => autoUpdater.checkForUpdates(), 60 * 60 * 1000); // cada hora
+  autoUpdater.on('error', (e) => { console.error('Updater:', e && e.message); sendStatus({ estado: 'error' }); });
+  autoUpdater.checkForUpdates().catch(() => {});
+  setInterval(() => autoUpdater.checkForUpdates().catch(() => {}), 60 * 60 * 1000); // cada hora
 }
 
 const lock = app.requestSingleInstanceLock();
