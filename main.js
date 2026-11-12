@@ -7,6 +7,7 @@ const os = require('os');
 const { spawn, execFile } = require('child_process');
 const browser = require('./browser');
 const { proxyFetch } = require('./netproxy');
+const elixTools = require('./tools'); // herramientas avanzadas (registro verificado)
 
 // Se conserva la carpeta de datos de ELIX (claves, ajustes, notas, sesión de YouTube) al cambiar el nombre a Radex
 app.setPath('userData', path.join(app.getPath('appData'), 'ELIX'));
@@ -329,6 +330,19 @@ ipcMain.handle('native:run', async (e, name, input) => {
   catch (err) { return 'No pude hacerlo: ' + String((err && err.message) || err).split('\n')[0].slice(0, 200); }
 });
 
+// ---------------- Herramientas avanzadas (tools/): audio, aplicaciones, navegador ----------------
+// Solo se pueden usar las herramientas registradas; los parámetros se validan y las acciones de riesgo
+// esperan la confirmación del usuario (la gestiona la app, no el modelo).
+ipcMain.handle('tools:catalog', (e) => (trusted(e) ? elixTools.catalog() : []));
+ipcMain.handle('tools:run', async (e, name, args) => {
+  if (!trusted(e)) return { ok: false, verified: false, mensaje: 'No permitido.', text: 'FALLÓ: No permitido.' };
+  return elixTools.run(String(name), args && typeof args === 'object' && !Array.isArray(args) ? args : {});
+});
+ipcMain.handle('tools:confirm', async (e, accept) => {
+  if (!trusted(e)) return { ok: false, verified: false, mensaje: 'No permitido.', text: 'FALLÓ: No permitido.' };
+  return elixTools.confirm(accept === true);
+});
+
 let lastStatus = { estado: 'inicio' };
 const sendStatus = (s) => { lastStatus = s; try { win && win.webContents.send('update:status', s); } catch {} };
 ipcMain.handle('app:info', (e) => trusted(e) ? { version: app.getVersion(), status: lastStatus } : null);
@@ -394,6 +408,7 @@ const lock = app.requestSingleInstanceLock();
 if (!lock) app.quit();
 else {
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
-  app.whenReady().then(() => { createWindow(); setupUpdater(); });
+  app.whenReady().then(() => { elixTools.init({ logFile: path.join(app.getPath('userData'), 'tools-log.jsonl') }); createWindow(); setupUpdater(); });
   app.on('window-all-closed', () => app.quit());
+  app.on('before-quit', () => { try { elixTools.shutdown(); } catch {} });
 }

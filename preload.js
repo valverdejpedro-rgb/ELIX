@@ -25,6 +25,13 @@ contextBridge.exposeInMainWorld('elixApp', {
   onUpdate: (cb) => ipcRenderer.on('update:status', (_e, s) => cb(s)),
 });
 
+// Herramientas avanzadas verificadas (catálogo, ejecución y respuesta a confirmaciones por voz)
+contextBridge.exposeInMainWorld('elixTools', {
+  catalog: () => ipcRenderer.invoke('tools:catalog'),
+  run: (name, args) => ipcRenderer.invoke('tools:run', name, args),
+  confirm: (accept) => ipcRenderer.invoke('tools:confirm', !!accept),
+});
+
 // Acciones de PC (abrir apps, carpetas, volumen, multimedia, info, bloquear)
 const NATIVE_NAMES = ['abrir_aplicacion', 'abrir_carpeta', 'ajustar_volumen', 'control_multimedia', 'info_del_sistema', 'bloquear_pc', 'controlar_ventana'];
 contextBridge.exposeInMainWorld('jarvisNative', Object.fromEntries(
