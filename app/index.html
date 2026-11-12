@@ -25,6 +25,17 @@
   #ver{color:var(--mute);font-size:14px;cursor:pointer;letter-spacing:.04em}
   #ver:hover{color:var(--cy)}
 
+  .mini{background:none;border:1px solid var(--line);color:var(--ice);border-radius:8px;padding:3px 12px;font:inherit;font-size:15px;cursor:pointer}
+  .mini:hover{border-color:var(--cy);color:var(--cy)}
+  dialog#diag{background:var(--panel);color:var(--ice);border:1px solid var(--cy);border-radius:14px;padding:18px 20px;width:min(92vw,470px);font:500 16px/1.4 var(--font)}
+  dialog#diag::backdrop{background:rgba(2,6,12,.72)}
+  #diag h2{margin:0 0 8px;font-size:19px;color:var(--cy);letter-spacing:.06em}
+  #diag .row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:8px 0}
+  #diag select{background:var(--ink);color:var(--ice);border:1px solid var(--line);border-radius:8px;padding:4px 6px;font:inherit;max-width:270px}
+  #diag .btns{flex-wrap:wrap;justify-content:flex-start;margin-top:12px}
+  .dgbar{height:10px;background:var(--line);border-radius:6px;overflow:hidden;margin:12px 0 6px}
+  .dgbar i{display:block;height:100%;width:0;background:var(--cy);transition:width .06s}
+  #dgMsg{margin:6px 0}#dgOut{margin:6px 0;color:var(--amber);min-height:1.4em}
   .orb{width:min(36vmin,280px);aspect-ratio:1;position:relative;margin:2vh 0;display:grid;place-items:center;cursor:pointer;border-radius:50%;flex:none;border:0;background:none;padding:0}
   .orb:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--cy);outline-offset:3px}
   .ring{position:absolute;border-radius:50%}
@@ -116,6 +127,16 @@
   </span>
 </button>
 
+<dialog id="diag" aria-label="Prueba del micrófono">
+  <h2>PRUEBA DEL MICRÓFONO</h2>
+  <div class="row"><span>Permiso</span><b id="dgPerm">…</b></div>
+  <label class="row">Micrófono <select id="dgDev"></select></label>
+  <label class="row">Sensibilidad <select id="dgGain"><option value="1">Normal</option><option value="2">Alta (voz baja)</option><option value="4">Muy alta</option></select></label>
+  <div class="dgbar"><i id="dgLvl"></i></div>
+  <p id="dgMsg">Pulsa «Iniciar prueba» y di algo.</p>
+  <p id="dgOut"></p>
+  <div class="row btns"><button type="button" class="mini" id="dgStart">Iniciar prueba</button><button type="button" class="mini" id="dgRec">Grabar 4 s y transcribir</button><button type="button" class="mini" id="dgWin">Privacidad de Windows</button><button type="button" class="mini" id="dgClose">Cerrar</button></div>
+</dialog>
 <div id="lvl" aria-hidden="true"><i></i></div>
 <div id="player" hidden>
   <div class="phead"><span id="ptitle"></span><button type="button" class="btn" id="pclose" style="padding:2px 12px">Cerrar</button></div>
@@ -133,6 +154,7 @@
   <label><input type="checkbox" id="wake"> Solo si digo “Radex”</label>
   <label title="Solo obedece lo que digas mientras mantienes pulsada la tecla Ctrl"><input type="checkbox" id="ptt"> Solo mientras mantengo Ctrl</label>
   <label><input type="checkbox" id="mute"> Sin voz</label>
+  <button type="button" class="mini" id="diagBtn" title="Comprobar permiso, elegir micrófono y probar que te entiende">Probar micrófono</button>
   <label>Avatar <select id="avatar" aria-label="Avatar"><option value="orbe">Orbe</option><option value="mujer">Holograma mujer</option><option value="hombre">Holograma hombre</option></select></label>
   <label>Oído <select id="earsel" aria-label="Motor de oído"><option value="auto">Automático</option><option value="groq">Groq Whisper (rápido)</option><option value="gemini">Gemini</option></select></label>
   <div id="apiCfg" style="display:none;gap:6px 18px;flex-wrap:wrap;align-items:center">
@@ -419,6 +441,101 @@ $('#mic').onclick = () => {
   if (listening) { ear.start(); startMeter(); } else { ear.stop(); stopMeter(); setState('idle', 'En espera'); }
 };
 
+/* ---------- Micrófono: elección, sensibilidad y prueba ---------- */
+const MIC = { id: store.get('jarvis:mic', ''), gain: +store.get('jarvis:micgain', '1') || 1 };
+function micConstraints(useSaved) {
+  const a = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+  if (useSaved && MIC.id) a.deviceId = { exact: MIC.id };
+  return { audio: a };
+}
+function micError(e) {
+  const n = e && e.name;
+  if (n === 'NotAllowedError' || n === 'SecurityError') return 'Permiso denegado. En Windows: Configuración > Privacidad > Micrófono, y activa «Permitir que las aplicaciones de escritorio accedan al micrófono».';
+  if (n === 'NotFoundError' || n === 'OverconstrainedError') return 'No encuentro ese micrófono. Elígelo de nuevo en «Probar micrófono».';
+  if (n === 'NotReadableError' || n === 'AbortError') return 'El micrófono está ocupado por otra aplicación o Windows lo bloquea. Ciérrala y reintenta.';
+  return 'No pude abrir el micrófono (' + (n || 'error') + ').';
+}
+async function openMic() { // usa el micrófono elegido; si ya no existe, avisa y usa el predeterminado de Windows
+  try { return await navigator.mediaDevices.getUserMedia(micConstraints(true)); }
+  catch (e) {
+    if (MIC.id && (e.name === 'OverconstrainedError' || e.name === 'NotFoundError')) {
+      addLine('error', 'El micrófono elegido ya no está disponible; uso el predeterminado de Windows.');
+      MIC.id = ''; store.set('jarvis:mic', '');
+      return await navigator.mediaDevices.getUserMedia(micConstraints(false));
+    }
+    throw e;
+  }
+}
+const DG = { stream: null, ctx: null, raf: 0, timer: 0, peak: 0, chunks: [], collect: false };
+async function dgPerm() {
+  let st = '';
+  try { st = (await navigator.permissions.query({ name: 'microphone' })).state; } catch {}
+  $('#dgPerm').textContent = { granted: 'Concedido', denied: 'Denegado', prompt: 'Se pedirá al probar' }[st] || 'No se pudo comprobar';
+}
+async function dgDevices() {
+  const sel = $('#dgDev'); sel.innerHTML = ''; sel.add(new Option('Predeterminado de Windows', ''));
+  try {
+    const ds = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput' && d.deviceId !== 'default' && d.deviceId !== 'communications');
+    ds.forEach((d, i) => sel.add(new Option(d.label || 'Micrófono ' + (i + 1), d.deviceId)));
+  } catch {}
+  sel.value = [...sel.options].some((o) => o.value === MIC.id) ? MIC.id : '';
+}
+function dgStop() {
+  cancelAnimationFrame(DG.raf); clearTimeout(DG.timer); DG.collect = false;
+  if (DG.stream) DG.stream.getTracks().forEach((t) => t.stop());
+  if (DG.ctx) DG.ctx.close().catch(() => {});
+  DG.stream = DG.ctx = null; $('#dgLvl').style.width = '0';
+}
+async function dgStart() {
+  dgStop(); $('#dgOut').textContent = ''; $('#dgMsg').textContent = 'Abriendo el micrófono…';
+  try { DG.stream = await openMic(); } catch (e) { $('#dgMsg').textContent = micError(e); dgPerm(); return false; }
+  dgPerm(); dgDevices();
+  const ctx = DG.ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const src = ctx.createMediaStreamSource(DG.stream), an = ctx.createAnalyser(); an.fftSize = 1024; src.connect(an);
+  const proc = ctx.createScriptProcessor(4096, 1, 1), mute = ctx.createGain(); mute.gain.value = 0; src.connect(proc); proc.connect(mute); mute.connect(ctx.destination);
+  proc.onaudioprocess = (e) => { if (DG.collect) DG.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+  const buf = new Uint8Array(an.fftSize); DG.peak = 0;
+  const tick = () => {
+    an.getByteTimeDomainData(buf); let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v - 128));
+    const lvl = Math.min(100, (m / 128) * 100 * MIC.gain); $('#dgLvl').style.width = lvl + '%'; DG.peak = Math.max(DG.peak, lvl);
+    DG.raf = requestAnimationFrame(tick);
+  };
+  tick();
+  const label = DG.stream.getAudioTracks()[0]?.label || 'micrófono';
+  $('#dgMsg').textContent = 'Escuchando «' + label + '». Di algo, por ejemplo: «Radex, hola».';
+  DG.timer = setTimeout(() => {
+    const k = Math.round(DG.peak);
+    $('#dgMsg').textContent = DG.peak > 35 ? `Se oye bien (nivel máximo ${k}%).`
+      : DG.peak > 8 ? `Se oye bajo (${k}%). Sube la sensibilidad o acércate al micrófono.`
+      : `Casi no llega sonido (${k}%). Elige otro micrófono arriba o revisa el volumen de entrada en Windows.`;
+  }, 4000);
+  return true;
+}
+async function dgRec() {
+  if (!DG.stream && !(await dgStart())) return;
+  DG.chunks = []; DG.collect = true; $('#dgOut').textContent = 'Grabando… habla ahora (4 s).';
+  await new Promise((r) => setTimeout(r, 4000)); DG.collect = false;
+  const total = DG.chunks.reduce((a, c) => a + c.length, 0);
+  if (!total || !DG.ctx) { $('#dgOut').textContent = 'No se grabó audio.'; return; }
+  const all = new Float32Array(total); let o = 0; for (const c of DG.chunks) { all.set(c, o); o += c.length; }
+  $('#dgOut').textContent = 'Transcribiendo…';
+  try {
+    const t = await transcribe(toWav(downsample(all, DG.ctx.sampleRate), 16000));
+    $('#dgOut').textContent = t ? 'Entendí: «' + t + '»' : 'No entendí nada. Si la barra de arriba se mueve, habla más cerca o sube la sensibilidad; si no se mueve, el micrófono no está captando.';
+  } catch (e) { $('#dgOut').textContent = (e && e.message) || 'No pude transcribir.'; }
+}
+$('#diagBtn').onclick = () => {
+  if (listening) { listening = false; updateMic(); ear.stop(); stopMeter(); setState('idle', 'En espera'); } // se pausa la escucha mientras pruebas
+  $('#dgGain').value = String(MIC.gain); $('#dgMsg').textContent = 'Pulsa «Iniciar prueba» y di algo.'; $('#dgOut').textContent = '';
+  $('#diag').showModal(); dgPerm(); dgDevices();
+};
+$('#dgStart').onclick = dgStart; $('#dgRec').onclick = dgRec;
+$('#dgDev').onchange = async (e) => { MIC.id = e.target.value; store.set('jarvis:mic', MIC.id); if (DG.stream) await dgStart(); };
+$('#dgGain').onchange = (e) => { MIC.gain = +e.target.value; store.set('jarvis:micgain', String(MIC.gain)); };
+$('#dgWin').onclick = () => { if (window.elixApp && elixApp.micSettings) elixApp.micSettings(); else $('#dgMsg').textContent = 'Abre Configuración de Windows > Privacidad > Micrófono.'; };
+$('#dgClose').onclick = () => $('#diag').close();
+$('#diag').addEventListener('close', dgStop);
+
 let meter = null, meterBusy = false;
 const GEM = { rec: false, working: false, buf: [], pre: [], silence: 0, len: 0, voiced: 0, hot: 0, noise: 0, calib: 0, thr: 0.02 };
 function gemReset() { GEM.rec = false; GEM.buf = []; GEM.pre = []; GEM.silence = 0; GEM.len = 0; GEM.voiced = 0; GEM.hot = 0; }
@@ -427,7 +544,7 @@ async function startMeter() {
   if (meter || meterBusy || !navigator.mediaDevices) return;
   meterBusy = true;
   try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: false } });
+    const stream = await openMic();
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const src = ctx.createMediaStreamSource(stream);
     const an = ctx.createAnalyser(); an.fftSize = 512; src.connect(an);
@@ -441,13 +558,13 @@ async function startMeter() {
     const tick = () => {
       an.getByteTimeDomainData(buf);
       let m = 0; for (const v of buf) m = Math.max(m, Math.abs(v - 128));
-      bar.style.width = Math.min(100, m * 1.6) + '%';
+      bar.style.width = Math.min(100, m * 1.6 * MIC.gain) + '%';
       raf = requestAnimationFrame(tick);
     };
     tick();
     meter = { stop() { cancelAnimationFrame(raf); proc.onaudioprocess = null; stream.getTracks().forEach((t) => t.stop()); ctx.close(); $('#lvl').classList.remove('on'); } };
   } catch (e) {
-    addLine('error', 'No pude abrir el micrófono (' + (e.name || 'error') + '). Revisa el permiso del sitio y que Windows permita el micrófono a las aplicaciones.');
+    addLine('error', micError(e));
   }
   meterBusy = false;
 }
@@ -456,7 +573,7 @@ function stopMeter() { if (meter) meter.stop(); meter = null; }
 function gemChunk(chunk, sr) {
   if (busy || speaking || !listening || GEM.working) { if (GEM.rec || GEM.pre.length) gemReset(); return; }
   let sum = 0; for (const v of chunk) sum += v * v;
-  const rms = Math.sqrt(sum / chunk.length), dur = chunk.length / sr;
+  const rms = Math.sqrt(sum / chunk.length) * MIC.gain, dur = chunk.length / sr;
   if (GEM.calib < 8) { GEM.noise = (GEM.noise * GEM.calib + rms) / (GEM.calib + 1); GEM.calib++; GEM.thr = Math.max(0.012, GEM.noise * 3); return; }
   if (!GEM.rec) {
     GEM.pre.push(chunk); if (GEM.pre.length > 4) GEM.pre.shift();
