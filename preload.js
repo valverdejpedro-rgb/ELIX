@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('elixApp', {
   info: () => ipcRenderer.invoke('app:info'),
   checkUpdate: () => ipcRenderer.invoke('app:check'),
   installNow: () => ipcRenderer.invoke('app:install'),
+  micSettings: () => ipcRenderer.invoke('app:micprivacy'),
   onUpdate: (cb) => ipcRenderer.on('update:status', (_e, s) => cb(s)),
 });
 

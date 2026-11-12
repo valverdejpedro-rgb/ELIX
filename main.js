@@ -171,6 +171,7 @@ ipcMain.handle('app:check', (e) => {
   if (!app.isPackaged) return sendStatus({ estado: 'dev' });
   autoUpdater.checkForUpdates().catch(() => {});
 });
+ipcMain.handle('app:micprivacy', (e) => { if (trusted(e)) shell.openExternal('ms-settings:privacy-microphone'); });
 ipcMain.handle('app:install', (e) => { if (trusted(e)) autoUpdater.quitAndInstall(true, true); });
 
 let win;
