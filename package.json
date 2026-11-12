@@ -1,7 +1,7 @@
 {
   "name": "elix",
   "productName": "Radex",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "Radex - asistente de IA",
   "main": "main.js",
   "author": "Pedro",
