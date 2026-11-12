@@ -62,6 +62,7 @@ const BUILTIN = {
   'paint': 'mspaint.exe', 'explorador': 'explorer.exe', 'explorador de archivos': 'explorer.exe', 'archivos': 'explorer.exe',
   'administrador de tareas': 'taskmgr.exe', 'recortes': 'snippingtool.exe', 'herramienta de recortes': 'snippingtool.exe',
 };
+const BROWSER_APPS = { 'google chrome': 'chrome', 'microsoft edge': 'edge', brave: 'brave', 'brave browser': 'brave' };
 const URIS = { 'configuracion': 'ms-settings:', 'ajustes': 'ms-settings:', 'spotify': 'spotify:', 'whatsapp': 'whatsapp:', 'tienda': 'ms-windows-store:', 'microsoft store': 'ms-windows-store:' };
 const ALIAS = { 'vscode': 'visual studio code', 'vs code': 'visual studio code', 'code': 'visual studio code', 'chrome': 'google chrome', 'edge': 'microsoft edge', 'google': 'google chrome' };
 let lnkCache = { t: 0, list: [] };
@@ -215,18 +216,28 @@ function psVolume(cmd, value) {
     }));
 }
 const NATIVE = {
-  async abrir_aplicacion({ nombre }) {
+  async abrir_aplicacion({ nombre, modo }) {
     let q = nrm(nombre); if (!q) return 'Dime qué aplicación abrir.';
     q = ALIAS[q] || q;
-    if (BUILTIN[q]) { await run(BUILTIN[q]); return `Abrí ${nombre}.`; }
+    // Los navegadores se abren con el módulo de navegador: así se pueden pedir ventanas o sesiones nuevas y Radex los controla
+    if (BROWSER_APPS[q]) return browser.run('abrir', { navegador: BROWSER_APPS[q], modo });
+    // Después de abrir cualquier cosa, la deja a la vista (restaurada si estaba minimizada y al frente)
+    const verla = (names) => browser.focusWin(names, { wait: 8000 }).catch(() => {});
+    if (BUILTIN[q]) { await run(BUILTIN[q]); await verla([BUILTIN[q].replace(/\.exe$/i, '')]); return `Abrí ${nombre}.`; }
     const a = findApp(q);
-    if (a) { const err = await shell.openPath(a.file); return err ? 'No pude abrirla: ' + err : `Abrí ${nombre}.`; }
-    if (URIS[q]) { await shell.openExternal(URIS[q]); return `Abrí ${nombre}.`; }
+    if (a) {
+      const err = await shell.openPath(a.file); if (err) return 'No pude abrirla: ' + err;
+      let exe = ''; try { exe = path.basename(shell.readShortcutLink(a.file).target || '').replace(/\.exe$/i, ''); } catch {}
+      await verla([exe || q]); return `Abrí ${nombre}.`;
+    }
+    if (URIS[q]) { await shell.openExternal(URIS[q]); await verla([q]); return `Abrí ${nombre}.`; }
     return `No encontré una aplicación llamada "${nombre}" instalada en este PC.`;
   },
   async abrir_carpeta({ carpeta }) {
     const k = FOLDERS[nrm(carpeta)]; if (!k) return 'Carpetas disponibles: descargas, documentos, escritorio, imágenes, música, videos.';
-    const err = await shell.openPath(app.getPath(k)); return err ? 'No pude abrirla: ' + err : `Abrí ${carpeta}.`;
+    const err = await shell.openPath(app.getPath(k)); if (err) return 'No pude abrirla: ' + err;
+    await browser.focusWin(['explorer'], { prefer: nrm(carpeta), wait: 6000 }).catch(() => {});
+    return `Abrí ${carpeta}.`;
   },
   async ajustar_volumen({ accion, porcentaje, pasos }) {
     const cmds = { subir: 'up', bajar: 'down', establecer: 'set', consultar: 'get', silenciar: 'mute', activar_sonido: 'unmute' };

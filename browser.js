@@ -3,7 +3,7 @@
 const { chromium } = require('playwright-core');
 const path = require('path');
 const http = require('http');
-const { spawn } = require('child_process');
+const { spawn, execFile } = require('child_process');
 const fs = require('fs');
 const { app } = require('electron');
 
@@ -74,7 +74,7 @@ async function ensure(nombre) {
   const br = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
   const ctx = br.contexts()[0] || await br.newContext();
   const page = ctx.pages()[0] || await ctx.newPage();
-  const ses = { browser: br, ctx, page };
+  const ses = { browser: br, ctx, page, fresh: true };
   br.on('disconnected', () => { if (sessions[name] === ses) delete sessions[name]; if (activeName === name) activeName = null; });
   ctx.on('page', (p) => { ses.page = p; });
   startWatchdog(ses);
@@ -115,6 +115,160 @@ function startWatchdog(ses) {
     } catch {} finally { busy = false; }
   }, 4000);
   ses.browser.on('disconnected', () => clearInterval(timer));
+}
+
+
+// ---------- Poner ventanas a la vista (Windows) ----------
+// Lista/elige ventanas reales de Windows y las restaura, maximiza y trae al frente.
+const WIN_CS = [
+  'using System; using System.Collections.Generic; using System.Runtime.InteropServices; using System.Text; using System.Diagnostics;',
+  'public static class WF {',
+  '  delegate bool EP(IntPtr h, IntPtr l);',
+  '  [DllImport("user32.dll")] static extern bool EnumWindows(EP p, IntPtr l);',
+  '  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);',
+  '  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);',
+  '  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetClassName(IntPtr h, StringBuilder s, int n);',
+  '  [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);',
+  '  [DllImport("user32.dll", EntryPoint="GetWindowLongW")] static extern int GetWindowLong(IntPtr h, int i);',
+  '  [DllImport("user32.dll")] static extern bool ShowWindowAsync(IntPtr h, int c);',
+  '  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);',
+  '  [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);',
+  '  [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);',
+  '  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();',
+  '  [DllImport("user32.dll")] static extern bool AttachThreadInput(uint a, uint b, bool f);',
+  '  [DllImport("user32.dll")] static extern void keybd_event(byte vk, byte sc, uint fl, UIntPtr ex);',
+  '  [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();',
+  '  static string Fold(string s) {',
+  '    var d = s.Normalize(NormalizationForm.FormD); var sb = new StringBuilder();',
+  '    foreach (var ch in d) { if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch) != System.Globalization.UnicodeCategory.NonSpacingMark) sb.Append(ch); }',
+  '    return sb.ToString().ToLower(); }',
+  '  static void Collect(string[] names, bool chromium, List<long> hs, List<string> ts) {',
+  '    EP cb = delegate(IntPtr h, IntPtr l) {',
+  '      if (!IsWindowVisible(h)) return true;',
+  '      if ((GetWindowLong(h, -20) & 0x80) != 0) return true;',
+  '      var t = new StringBuilder(512); GetWindowText(h, t, 512);',
+  '      if (t.Length == 0) return true;',
+  '      var c = new StringBuilder(256); GetClassName(h, c, 256);',
+  '      string cn = c.ToString();',
+  '      if (cn == "Progman" || cn == "Shell_TrayWnd" || cn == "WorkerW") return true;',
+  '      if (chromium && cn != "Chrome_WidgetWin_1") return true;',
+  '      uint pid; GetWindowThreadProcessId(h, out pid);',
+  '      string pn = ""; try { pn = Process.GetProcessById((int)pid).ProcessName.ToLower(); } catch {}',
+  '      string title = Fold(t.ToString());',
+  '      foreach (var n in names) {',
+  '        bool ok = chromium ? pn.Contains(n) : (pn.Contains(n) || title.Contains(n));',
+  '        if (n.Length > 0 && ok) { hs.Add(h.ToInt64()); ts.Add(title); break; }',
+  '      }',
+  '      return true; };',
+  '    EnumWindows(cb, IntPtr.Zero); }',
+  '  public static string ListCsv(string[] names, bool chromium) {',
+  '    var hs = new List<long>(); var ts = new List<string>(); Collect(names, chromium, hs, ts);',
+  '    var o = new List<string>(); foreach (var x in hs) o.Add(x.ToString()); return string.Join(",", o.ToArray()); }',
+  '  public static long Pick(string[] names, bool chromium, long[] skip, string prefer, bool needNew) {',
+  '    var hs = new List<long>(); var ts = new List<string>(); Collect(names, chromium, hs, ts);',
+  '    string pf = Fold(prefer == null ? "" : prefer); long best = 0;',
+  '    for (int i = 0; i < hs.Count; i++) {',
+  '      if (needNew && Array.IndexOf(skip, hs[i]) >= 0) continue;',
+  '      if (pf.Length > 0 && ts[i].Contains(pf)) return hs[i];',
+  '      if (best == 0) best = hs[i];',
+  '    }',
+  '    return best; }',
+  '  public static void Show(long hh, bool max) {',
+  '    var h = new IntPtr(hh);',
+  '    if (IsIconic(h)) ShowWindowAsync(h, 9);',
+  '    if (max) ShowWindowAsync(h, 3);',
+  '    System.Threading.Thread.Sleep(200);',
+  '    keybd_event(0x12, 0, 0, UIntPtr.Zero); keybd_event(0x12, 0, 2, UIntPtr.Zero);',
+  '    uint pid; uint fg = GetWindowThreadProcessId(GetForegroundWindow(), out pid); uint me = GetCurrentThreadId();',
+  '    if (fg != me) AttachThreadInput(me, fg, true);',
+  '    BringWindowToTop(h); SetForegroundWindow(h);',
+  '    if (fg != me) AttachThreadInput(me, fg, false); }',
+  '}',
+].join('\n');
+const PS_EXE = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+const cleanNames = (arr) => [...new Set((arr || []).map((x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean))].slice(0, 6);
+const psNames = (n) => `$names=[string[]]@(${n.map((x) => `'${x}'`).join(',')})`;
+function psWin(body, timeout) {
+  if (process.platform !== 'win32') return Promise.resolve('');
+  const script = ["$ErrorActionPreference='Stop'", "$ProgressPreference='SilentlyContinue'", "Add-Type -TypeDefinition @'", WIN_CS, "'@", body].join('\n');
+  const enc = Buffer.from(script, 'utf16le').toString('base64');
+  return new Promise((res) => execFile(PS_EXE, ['-NoProfile', '-NonInteractive', '-OutputFormat', 'Text', '-EncodedCommand', enc],
+    { windowsHide: true, timeout }, (err, out) => res(String(out || ''))));
+}
+// Ventanas abiertas ahora de esos programas (para reconocer cuál es la NUEVA)
+async function listWins(names, chromium = false) {
+  const n = cleanNames(names); if (!n.length) return [];
+  const out = await psWin(`${psNames(n)}\nWrite-Output ('WINS:' + [WF]::ListCsv($names,$${chromium ? 'true' : 'false'}))`, 20000);
+  const m = /WINS:([-0-9,]*)/.exec(out);
+  return m && m[1] ? m[1].split(',').map(Number) : [];
+}
+// Restaura (si estaba minimizada), maximiza (opcional) y trae al frente la ventana. Espera hasta que aparezca.
+async function focusWin(names, o = {}) {
+  const n = cleanNames(names); if (!n.length) return 'NOENCONTRADO';
+  const skip = (o.skip || []).map(Number).filter(Number.isFinite);
+  const prefer = Buffer.from(String(o.prefer || '').slice(0, 60), 'utf8').toString('base64');
+  const wait = Math.max(0, Math.min(15000, o.wait == null ? 8000 : o.wait));
+  const body = [
+    psNames(n),
+    `$skip=[long[]]@(${skip.join(',')})`,
+    `$prefer=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${prefer}'))`,
+    `$chromium=$${o.chromium ? 'true' : 'false'}; $max=$${o.max ? 'true' : 'false'}; $needNew=$${o.needNew ? 'true' : 'false'}`,
+    `$deadline=(Get-Date).AddMilliseconds(${wait}); $h=[long]0`,
+    'do { $h=[WF]::Pick($names,$chromium,$skip,$prefer,$needNew); if($h -ne 0){break}; Start-Sleep -Milliseconds 300 } while((Get-Date) -lt $deadline)',
+    'if($h -eq 0){ $h=[WF]::Pick($names,$chromium,$skip,$prefer,$false) }',
+    "if($h -eq 0){ Write-Output 'NOENCONTRADO'; exit }",
+    '[WF]::Show($h,$max); Write-Output "OK"',
+  ].join('\n');
+  const out = await psWin(body, wait + 20000);
+  return /OK/.test(out) ? 'OK' : 'NOENCONTRADO';
+}
+
+const PROC = { chrome: 'chrome', edge: 'msedge', brave: 'brave' };
+
+// Ventana nueva del MISMO navegador y la misma sesión (como Ctrl+N)
+async function nuevaVentana(s) {
+  const c = await s.browser.newBrowserCDPSession();
+  try {
+    const esperar = s.ctx.waitForEvent('page', { timeout: 10000 });
+    esperar.catch(() => {});
+    await c.send('Target.createTarget', { url: 'about:blank', newWindow: true });
+    return await esperar;
+  } finally { await c.detach().catch(() => {}); }
+}
+
+// Según lo que pidió el usuario: usar la ventana actual, o abrir ventana/pestaña/sesión nueva.
+// modo: misma | ventana_nueva | pestana_nueva | sesion_nueva (ventana aislada, sin las cuentas de la otra)
+async function preparar(s, modo) {
+  // Si el navegador se acaba de abrir ahora mismo, su ventana en blanco ya es la "nueva": no abras otra más
+  const recien = s.fresh; s.fresh = false;
+  if (recien && (modo === 'ventana_nueva' || modo === 'pestana_nueva')) modo = 'misma';
+  const nueva = modo === 'ventana_nueva' || modo === 'sesion_nueva';
+  const before = nueva ? await listWins([PROC[activeName]], true).catch(() => []) : [];
+  if (modo === 'sesion_nueva') {
+    const ctx2 = await s.browser.newContext({ viewport: null });
+    ctx2.on('page', (p) => { s.page = p; });
+    s.page = await ctx2.newPage();
+  } else if (modo === 'ventana_nueva') {
+    s.page = await nuevaVentana(s);
+  } else if (modo === 'pestana_nueva') {
+    s.page = await s.ctx.newPage();
+  }
+  return { before, nueva };
+}
+
+// Deja la ventana a la vista: restaurada si estaba minimizada, maximizada y al frente
+async function mostrar(s, name, before = [], nueva = false) {
+  try {
+    const cdp = await s.page.context().newCDPSession(s.page);
+    try {
+      const { windowId } = await cdp.send('Browser.getWindowForTarget');
+      await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'normal' } }).catch(() => {});
+      await cdp.send('Browser.setWindowBounds', { windowId, bounds: { windowState: 'maximized' } }).catch(() => {});
+    } finally { await cdp.detach().catch(() => {}); }
+  } catch {}
+  await s.page.bringToFront().catch(() => {});
+  const prefer = await s.page.title().catch(() => '');
+  await focusWin([PROC[name]], { chromium: true, max: true, skip: before, needNew: nueva, prefer, wait: 6000 }).catch(() => {});
 }
 
 async function cur(nombre) {
@@ -181,16 +335,26 @@ async function videoCmd(page, fn, arg) {
 }
 
 const actions = {
-  async abrir({ navegador, url }) {
-    if (!/^https?:\/\//i.test(url || '')) return 'URL no válida: debe empezar con http:// o https://';
+  async abrir({ navegador, url, modo }) {
+    const u = String(url || '').trim();
+    if (u && !/^https?:\/\//i.test(u)) return 'URL no válida: debe empezar con http:// o https://';
     const s = await cur(navegador);
-    await s.page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    return `Abrí ${await s.page.title() || url} en ${activeName}.`;
+    const name = activeName;
+    const { before, nueva } = await preparar(s, modo);
+    const destino = u || (s.page.url() === 'about:blank' ? 'https://www.google.com' : '');
+    if (destino) await s.page.goto(destino, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await mostrar(s, name, before, nueva);
+    const que = destino ? (await s.page.title().catch(() => '') || destino) : 'el navegador';
+    const donde = { ventana_nueva: ' en una ventana nueva', sesion_nueva: ' en una sesión nueva (aislada: sin las cuentas iniciadas en la otra ventana)', pestana_nueva: ' en una pestaña nueva' }[modo] || '';
+    return `Abrí ${que} en ${name}${donde} y lo dejé a la vista.`;
   },
 
-  async youtube({ navegador, consulta, numero = 1 }) {
+  async youtube({ navegador, consulta, numero = 1, modo }) {
     const s = await cur(navegador);
+    const name = activeName;
+    const { before, nueva } = await preparar(s, modo);
     await s.page.goto('https://www.youtube.com/results?search_query=' + encodeURIComponent(consulta), { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await mostrar(s, name, before, nueva);
     await acceptConsent(s.page);
     await s.page.waitForSelector(VIDEO, { timeout: 15000 });
     const lista = await results(s.page, 5);
@@ -282,6 +446,7 @@ const actions = {
     if (!s) return 'No hay ningún navegador abierto por ELIX.';
     try { const c = await s.browser.newBrowserCDPSession(); await c.send('Browser.close'); } catch {}
     delete sessions[name]; if (activeName === name) activeName = null;
+    for (let i = 0; i < 24 && await cdpUp(PORTS[name]); i++) await new Promise((r) => setTimeout(r, 250)); // que se cierre del todo antes de volver a abrirlo
     return `Cerré ${name}.`;
   },
 };
@@ -293,4 +458,4 @@ async function run(accion, args) {
   catch (e) { return 'No pude hacerlo: ' + String(e.message || e).split('\n')[0].slice(0, 200); }
 }
 
-module.exports = { run };
+module.exports = { run, focusWin, listWins };
