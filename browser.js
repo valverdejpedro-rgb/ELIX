@@ -2,6 +2,8 @@
 // Usa los navegadores ya instalados en el PC; no descarga nada.
 const { chromium } = require('playwright-core');
 const path = require('path');
+const http = require('http');
+const { spawn } = require('child_process');
 const fs = require('fs');
 const { app } = require('electron');
 
@@ -21,30 +23,98 @@ let activeName = null;
 function norm(n) { return ALIAS[String(n || '').toLowerCase().trim()] || null; }
 function findExe(name) { return (EXES[name] || []).find((p) => { try { return fs.existsSync(p); } catch { return false; } }); }
 
+// Puerto local de depuración por navegador (solo 127.0.0.1)
+const PORTS = { chrome: 38431, edge: 38432, brave: 38433 };
+
+function cdpUp(port) {
+  return new Promise((resolve) => {
+    const r = http.get({ host: '127.0.0.1', port, path: '/json/version', timeout: 800 }, (resp) => { resp.resume(); resolve(resp.statusCode === 200); });
+    r.on('error', () => resolve(false));
+    r.on('timeout', () => { r.destroy(); resolve(false); });
+  });
+}
+async function waitCdp(port, ms = 20000) {
+  const t = Date.now();
+  while (Date.now() - t < ms) { if (await cdpUp(port)) return true; await new Promise((r) => setTimeout(r, 300)); }
+  return false;
+}
+
+// CLAVE PARA QUE LOS VIDEOS NO SE CORTEN: el navegador se abre como un Chrome/Edge/Brave NORMAL
+// (lo lanza Windows, no Playwright) y ELIX solo se conecta a él por el puerto local. Así YouTube no ve
+// ningún rastro de automatización (ni flags de prueba, ni webdriver, ni scripts inyectados).
 async function ensure(nombre) {
   let name = norm(nombre) || activeName || (findExe('chrome') && 'chrome') || (findExe('edge') && 'edge') || 'brave';
   if (!EXES[name]) throw new Error('Navegador no soportado. Usa chrome, edge o brave.');
   const s = sessions[name];
   if (s) {
-    try { if (!s.page || s.page.isClosed()) s.page = s.ctx.pages().slice(-1)[0] || await s.ctx.newPage(); activeName = name; return s; } catch { delete sessions[name]; }
+    try {
+      if (!s.browser.isConnected()) throw new Error('desconectado');
+      if (!s.page || s.page.isClosed()) s.page = s.ctx.pages().slice(-1)[0] || await s.ctx.newPage();
+      activeName = name; return s;
+    } catch { delete sessions[name]; }
   }
   const exe = findExe(name);
   if (!exe) throw new Error(`No encontré ${name} instalado en este PC.`);
+  const port = PORTS[name];
   const dir = path.join(app.getPath('userData'), 'browser-profiles', name);
-  const ctx = await chromium.launchPersistentContext(dir, {
-    executablePath: exe, headless: false, viewport: null,
-    chromiumSandbox: true, // evita el aviso de --no-sandbox
-    args: ['--start-maximized', '--autoplay-policy=no-user-gesture-required'],
-    ignoreDefaultArgs: ['--enable-automation', '--disable-extensions', '--disable-component-update', '--disable-background-networking', '--disable-default-apps'],
-  });
-  // Oculta la marca de automatización desde la propia página (sin flags de línea de comandos, así Chrome no muestra avisos)
-  await ctx.addInitScript(() => { try { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); } catch {} });
+  if (!(await cdpUp(port))) {
+    const child = spawn(exe, [
+      `--user-data-dir=${dir}`,
+      `--remote-debugging-port=${port}`,
+      '--remote-debugging-address=127.0.0.1',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--start-maximized',
+      '--autoplay-policy=no-user-gesture-required',
+      'about:blank',
+    ], { stdio: 'ignore' });
+    child.on('error', () => {});
+    if (!(await waitCdp(port))) throw new Error(`No pude abrir ${name}. Ciérralo si estaba abierto con el perfil de ELIX e inténtalo otra vez.`);
+  }
+  const br = await chromium.connectOverCDP(`http://127.0.0.1:${port}`);
+  const ctx = br.contexts()[0] || await br.newContext();
   const page = ctx.pages()[0] || await ctx.newPage();
-  const ses = { ctx, page };
-  ctx.on('close', () => { delete sessions[name]; if (activeName === name) activeName = null; });
+  const ses = { browser: br, ctx, page };
+  br.on('disconnected', () => { if (sessions[name] === ses) delete sessions[name]; if (activeName === name) activeName = null; });
   ctx.on('page', (p) => { ses.page = p; });
+  startWatchdog(ses);
   sessions[name] = ses; activeName = name;
   return ses;
+}
+
+// Red de seguridad (solo actúa si YouTube igual llegara a fallar): acepta el aviso "¿Sigues viendo?"
+// y, si aparece el error del reproductor, recarga el video en el mismo segundo.
+function startWatchdog(ses) {
+  let fails = 0, busy = false;
+  const timer = setInterval(async () => {
+    if (busy) return;
+    const page = ses.page;
+    if (!page || page.isClosed()) return;
+    busy = true;
+    try {
+      const url = page.url();
+      if (!/youtube\.com\/watch/.test(url)) { fails = 0; return; }
+      const st = await page.evaluate(() => {
+        const dlg = document.querySelector('yt-confirm-dialog-renderer');
+        if (dlg && /sigues|still watching|seguir viendo|continue watching/i.test(dlg.innerText || '')) {
+          const b = dlg.querySelector('button'); if (b) b.click();
+        }
+        const e = document.querySelector('.ytp-error');
+        const v = document.querySelector('video');
+        const bad = !!(e && e.offsetParent !== null && getComputedStyle(e).display !== 'none');
+        return { bad, t: v ? Math.floor(v.currentTime || 0) : 0 };
+      }).catch(() => null);
+      if (!st) return;
+      if (!st.bad) { fails = 0; return; }
+      if (fails >= 3) return;
+      fails++;
+      const u = new URL(url);
+      if (st.t > 3) u.searchParams.set('t', st.t + 's'); else u.searchParams.delete('t');
+      await page.goto(u.toString(), { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+      await page.waitForSelector('video', { timeout: 15000 }).catch(() => {});
+    } catch {} finally { busy = false; }
+  }, 4000);
+  ses.browser.on('disconnected', () => clearInterval(timer));
 }
 
 async function cur(nombre) {
@@ -180,7 +250,7 @@ const actions = {
     const name = norm(navegador) || activeName;
     const s = sessions[name];
     if (!s) return 'No hay ningún navegador abierto por ELIX.';
-    await s.ctx.close().catch(() => {});
+    try { const c = await s.browser.newBrowserCDPSession(); await c.send('Browser.close'); } catch {}
     delete sessions[name]; if (activeName === name) activeName = null;
     return `Cerré ${name}.`;
   },

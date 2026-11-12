@@ -62,6 +62,18 @@ async function createWindow() {
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false }
   });
   Menu.setApplicationMenu(null);
+  // YouTube rechaza los reproductores que se identifican como "Electron": se presenta como Chrome normal
+  const ua = session.defaultSession.getUserAgent().replace(/\s(Electron|elix|Radex)\/\S+/gi, '');
+  session.defaultSession.setUserAgent(ua);
+  win.webContents.setUserAgent(ua);
+  // El reproductor incrustado exige Referer (sin él da "Error 153"); se lo garantizamos siempre
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ['https://www.youtube.com/*', 'https://www.youtube-nocookie.com/*'] },
+    (details, cb) => {
+      const h = details.requestHeaders;
+      if (!h['Referer'] || !/^https?:/i.test(h['Referer'])) h['Referer'] = `http://localhost:${PORT}/`;
+      cb({ requestHeaders: h });
+    });
   // Permitir micrófono
   session.defaultSession.setPermissionRequestHandler((_wc, perm, cb) =>
     cb(['media', 'audioCapture', 'microphone'].includes(perm)));
