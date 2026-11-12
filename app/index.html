@@ -42,6 +42,46 @@
   @keyframes talk{0%,100%{transform:scale(1)}50%{transform:scale(1.28)}}
   @media (prefers-reduced-motion:reduce){.ring,.core{animation:none!important}}
 
+
+  /* ---------- Avatares holográficos ---------- */
+  .holo{display:none;position:absolute;inset:0;pointer-events:none}
+  .holo svg{width:100%;height:100%;overflow:visible;animation:flick 6s steps(1) infinite}
+  body:not([data-avatar=orbe]) .ring,body:not([data-avatar=orbe]) .core{display:none}
+  body:not([data-avatar=orbe]) .orb{width:min(25vmin,210px);aspect-ratio:3/4;border-radius:14px}
+  body:not([data-avatar=orbe]).playing .orb{width:min(12vmin,86px)}
+  body[data-avatar=mujer] #holoMujer,body[data-avatar=hombre] #holoHombre{display:block}
+  .holo .fig{animation:floaty 5s ease-in-out infinite}
+  .holo svg{filter:drop-shadow(0 0 7px var(--cy))}
+  .holo .fl{fill:url(#hgrad);stroke:var(--cy);stroke-width:1.6;stroke-linejoin:round}
+  .holo .ln{fill:none;stroke:var(--cy);stroke-width:1.4;stroke-linecap:round;opacity:.8}
+  .holo .gl{fill:var(--hi);stroke:var(--cy);stroke-width:1}
+  .holo .eye{fill:none;stroke:var(--hi);stroke-width:2.2;stroke-linecap:round}
+  .holo .vis{fill:color-mix(in srgb,var(--cy) 55%,transparent);stroke:var(--hi);stroke-width:1.6}
+  .holo .mouth{fill:var(--hi);transform-box:fill-box;transform-origin:center;transform:scaleY(.5)}
+  .holo .bar{fill:var(--cy);transform-box:fill-box;transform-origin:center bottom;transform:scaleY(.25)}
+  .holo .beam{fill:url(#bgrad)}
+  .holo .base{fill:none;stroke:var(--cy);stroke-width:1.5}
+  .holo .base.d{stroke-dasharray:7 9;animation:dash 3s linear infinite}
+  @keyframes dash{to{stroke-dashoffset:-64}}
+  .holo .band{fill:url(#sgrad);opacity:.5;animation:sweep 3.6s linear infinite}
+  body[data-state=thinking] .holo .band{animation-duration:1.1s}
+  body[data-state=thinking] .holo .base.d{animation-duration:.8s}
+  body[data-state=listening] .holo svg{filter:drop-shadow(0 0 12px var(--cy))}
+  body[data-state=speaking] .holo svg{filter:drop-shadow(0 0 15px var(--cy))}
+  body[data-state=speaking] .holo .mouth{animation:mouth .32s ease-in-out infinite}
+  body[data-state=speaking] .holo .bar{animation:bars .45s ease-in-out infinite}
+  body[data-state=speaking] .holo .bar:nth-child(2){animation-delay:-.12s}
+  body[data-state=speaking] .holo .bar:nth-child(3){animation-delay:-.27s}
+  body[data-state=speaking] .holo .bar:nth-child(4){animation-delay:-.06s}
+  body[data-state=speaking] .holo .bar:nth-child(5){animation-delay:-.2s}
+  body[data-state=speaking] .holo .vis{fill:color-mix(in srgb,var(--cy) 85%,transparent)}
+  @keyframes floaty{50%{transform:translateY(-4px)}}
+  @keyframes sweep{from{transform:translateY(-60px)}to{transform:translateY(400px)}}
+  @keyframes flick{0%,100%{opacity:1}91%{opacity:.82}93%{opacity:.55}95%{opacity:.95}}
+  @keyframes mouth{50%{transform:scaleY(3.2)}}
+  @keyframes bars{50%{transform:scaleY(1.5)}}
+  @media (prefers-reduced-motion:reduce){.holo *{animation:none!important}}
+
   #log{width:100%;max-width:760px;flex:1;min-height:0;overflow-y:auto;padding:8px 20px;display:flex;flex-direction:column;gap:10px}
   .line{max-width:88%;padding:9px 14px;border-radius:12px;background:var(--panel);border:1px solid var(--line);overflow-wrap:anywhere}
   .line.user{align-self:flex-end;color:var(--mute)}
@@ -75,8 +115,55 @@
 <body data-state="idle">
 <header><div style="display:flex;gap:12px;align-items:baseline"><h1 id="logo" style="user-select:none">RADEX</h1><span id="ver" title="Versión instalada (clic para buscar actualizaciones)"></span></div><span id="status" aria-live="polite">En espera</span></header>
 
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
+      <linearGradient id="hgrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--cy);stop-opacity:.42"/><stop offset="1" style="stop-color:var(--cy);stop-opacity:.07"/></linearGradient>
+      <linearGradient id="bgrad" x1="0" y1="1" x2="0" y2="0"><stop offset="0" style="stop-color:var(--cy);stop-opacity:.30"/><stop offset="1" style="stop-color:var(--cy);stop-opacity:0"/></linearGradient>
+      <linearGradient id="sgrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--cy);stop-opacity:0"/><stop offset=".5" style="stop-color:#fff;stop-opacity:.45"/><stop offset="1" style="stop-color:var(--cy);stop-opacity:0"/></linearGradient>
+      <pattern id="lines" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="4" fill="#fff"/><rect y="2.6" width="4" height="1.3" fill="#000" fill-opacity=".62"/></pattern>
+      <mask id="scan" maskUnits="userSpaceOnUse" x="0" y="0" width="300" height="400"><rect width="300" height="400" fill="url(#lines)"/></mask>
+    </defs></svg>
 <button class="orb" id="orb" aria-label="Interrumpir a Radex">
   <span class="ring r1"></span><span class="ring r2"></span><span class="ring r3"></span><span class="core"></span>
+  <span class="holo" id="holoMujer" aria-hidden="true"><svg viewBox="0 0 300 400" xmlns="http://www.w3.org/2000/svg">
+      <path class="beam" d="M72 392 L228 392 L284 26 L16 26 Z"/>
+      <ellipse class="base" cx="150" cy="392" rx="96" ry="12"/><ellipse class="base d" cx="150" cy="392" rx="116" ry="15"/>
+      <g class="fig" mask="url(#scan)">
+        <path class="fl" d="M60 392 L66 330 Q70 296 112 284 L132 276 L168 276 L188 284 Q230 296 234 330 L240 392 Z"/>
+        <path class="fl" d="M133 222 L133 278 Q150 292 167 278 L167 222 Z"/>
+        <path class="fl" d="M108 160 Q108 108 150 108 Q192 108 192 160 Q192 205 168 224 Q150 234 132 224 Q108 205 108 160 Z"/>
+        <path class="fl" d="M103 170 Q92 96 150 88 Q208 96 197 170 Q204 214 192 254 Q199 204 188 160 Q180 122 156 118 Q132 126 122 150 Q112 160 110 190 Q108 222 108 254 Q96 214 103 170 Z"/>
+        <path class="ln" d="M120 150 Q146 112 186 132 M126 140 Q150 120 180 138"/>
+        <path class="ln" d="M104 190 Q100 230 106 262 M196 190 Q200 230 194 262 M112 200 Q110 236 114 268 M188 200 Q190 236 186 268"/>
+        <path class="eye" d="M124 168 Q135 160 145 168 M155 168 Q165 160 176 168"/>
+        <circle class="gl" cx="134" cy="167" r="2.6"/><circle class="gl" cx="166" cy="167" r="2.6"/>
+        <path class="ln" d="M150 176 L146 192 L152 192"/>
+        <ellipse class="mouth" cx="150" cy="208" rx="8" ry="1.6"/>
+        <path class="ln" d="M112 296 L132 318 L132 356 M188 296 L168 318 L168 356 M150 284 L150 392"/>
+        <circle class="gl" cx="150" cy="330" r="6"/><circle class="ln" cx="150" cy="330" r="12"/>
+        <path class="ln" d="M84 340 L98 340 L106 352 M216 340 L202 340 L194 352"/>
+      </g>
+      <rect class="band" x="40" y="0" width="220" height="50"/>
+  </svg></span>
+  <span class="holo" id="holoHombre" aria-hidden="true"><svg viewBox="0 0 300 400" xmlns="http://www.w3.org/2000/svg">
+      <path class="beam" d="M72 392 L228 392 L284 26 L16 26 Z"/>
+      <ellipse class="base" cx="150" cy="392" rx="96" ry="12"/><ellipse class="base d" cx="150" cy="392" rx="116" ry="15"/>
+      <g class="fig" mask="url(#scan)">
+        <path class="fl" d="M40 392 L42 322 Q44 282 90 274 L128 268 L172 268 L210 274 Q256 282 258 322 L260 392 Z"/>
+        <path class="fl" d="M44 320 Q48 276 98 270 L112 302 Q80 304 60 342 Z"/>
+        <path class="fl" d="M256 320 Q252 276 202 270 L188 302 Q220 304 240 342 Z"/>
+        <path class="fl" d="M126 238 L126 274 L174 274 L174 238 Z"/>
+        <path class="ln" d="M126 250 H174 M126 262 H174"/>
+        <path class="fl" d="M100 172 Q96 94 150 88 Q204 94 200 172 L198 214 Q196 238 172 246 L128 246 Q104 238 102 214 Z"/>
+        <path class="ln" d="M150 88 V134 M128 98 Q150 92 172 98"/>
+        <path class="vis" d="M110 152 Q150 138 190 152 L185 184 Q150 198 115 184 Z"/>
+        <path class="ln" d="M120 160 Q150 150 180 160" style="stroke:#fff;opacity:.9"/>
+        <path class="ln" d="M118 206 H136 M118 215 H136 M164 206 H182 M164 215 H182 M150 200 V240"/>
+        <path class="fl" d="M108 290 L150 306 L192 290 L186 342 L150 360 L114 342 Z"/>
+        <g><rect class="bar" x="124" y="316" width="6" height="22" rx="2"/><rect class="bar" x="136" y="312" width="6" height="30" rx="2"/><rect class="bar" x="147" y="308" width="6" height="36" rx="2"/><rect class="bar" x="158" y="312" width="6" height="30" rx="2"/><rect class="bar" x="170" y="316" width="6" height="22" rx="2"/></g>
+        <path class="ln" d="M70 300 L82 330 M230 300 L218 330 M62 352 H96 M204 352 H238"/>
+      </g>
+      <rect class="band" x="40" y="0" width="220" height="50"/>
+  </svg></span>
 </button>
 
 <div id="lvl" aria-hidden="true"><i></i></div>
@@ -95,6 +182,7 @@
 <div class="opts">
   <label><input type="checkbox" id="wake"> Solo si digo “Radex”</label>
   <label><input type="checkbox" id="mute"> Sin voz</label>
+  <label>Avatar <select id="avatar" aria-label="Avatar"><option value="orbe">Orbe</option><option value="mujer">Holograma (mujer)</option><option value="hombre">Holograma (soldado)</option></select></label>
   <label>Oído <select id="earsel" aria-label="Motor de oído"><option value="auto">Automático</option><option value="groq">Groq Whisper (rápido)</option><option value="gemini">Gemini</option></select></label>
   <div id="apiCfg" style="display:none;gap:6px 18px;flex-wrap:wrap;align-items:center">
   <label>Cerebro
@@ -530,6 +618,16 @@ $('#earsel').onchange = (e) => {
 };
 
 /* ---------- Acciones ---------- */
+/* ---------- Avatar ---------- */
+const AVATARES = { orbe: 'orbe', mujer: 'holograma de mujer', hombre: 'holograma de soldado' };
+function setAvatar(a) {
+  if (!AVATARES[a]) a = 'orbe';
+  document.body.dataset.avatar = a; $('#avatar').value = a; store.set('jarvis:avatar', a);
+  return a;
+}
+$('#avatar').onchange = (e) => setAvatar(e.target.value);
+setAvatar(store.get('jarvis:avatar', 'orbe'));
+
 const COLORS = { cian: '#4fd8ff', azul: '#5b8cff', verde: '#5dffa4', rojo: '#ff5d6c', morado: '#b48cff', naranja: '#ff9b4f', rosa: '#ff7ac8', amarillo: '#ffe14f', blanco: '#f2f8ff' };
 const SITES = {
   google: (q) => 'https://www.google.com/search?q=' + encodeURIComponent(q),
@@ -592,6 +690,9 @@ const TOOLS_WEB = [
   { name: 'cambiar_color_orbe', description: 'Cambia el color de la interfaz: ' + Object.keys(COLORS).join(', ') + '.',
     inputSchema: { type: 'object', properties: { color: { type: 'string', enum: Object.keys(COLORS) } }, required: ['color'] },
     execute: ({ color }) => { const c = COLORS[color]; if (!c) return 'Color desconocido'; document.documentElement.style.setProperty('--cy', c); return 'Color cambiado a ' + color; } },
+  { name: 'cambiar_avatar', description: 'Cambia la imagen del asistente: orbe, mujer (holograma de mujer) o hombre (holograma de soldado).',
+    inputSchema: { type: 'object', properties: { avatar: { type: 'string', enum: Object.keys(AVATARES) } }, required: ['avatar'] },
+    execute: ({ avatar }) => AVATARES[avatar] ? 'Avatar cambiado a ' + AVATARES[avatar] : 'Avatar desconocido' },
   { name: 'copiar_al_portapapeles', description: 'Copia un texto al portapapeles.',
     inputSchema: { type: 'object', properties: { texto: str('Texto a copiar') }, required: ['texto'] },
     execute: async ({ texto }) => { try { await navigator.clipboard.writeText(texto); return 'Copiado'; } catch { return 'El navegador no permitió copiar'; } } },
@@ -737,7 +838,7 @@ Entorno: ${window.elixBrowser ? 'versión de escritorio (.exe) en Windows.' : 'v
 function trim(h) { while (h.length > 16) h = h.slice(2); return h; }
 
 const PRESETS = {
-  groq: { name: 'Groq', url: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-120b', fallbacks: ['openai/gpt-oss-20b', 'llama-3.3-70b-versatile'],
+  groq: { name: 'Groq', url: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-120b', fallbacks: ['openai/gpt-oss-20b', 'qwen/qwen3.6-27b'],
     help: 'Clave gratis (sin tarjeta) en console.groq.com/keys. También sirve para el oído (Whisper).' },
   openrouter: { name: 'OpenRouter', url: 'https://openrouter.ai/api/v1', model: 'openai/gpt-oss-120b:free', fallbacks: ['meta-llama/llama-3.3-70b-instruct:free'],
     help: 'Clave gratis en openrouter.ai/keys (límite bajo: ~50 mensajes al día).' },
@@ -782,7 +883,12 @@ function loadCfg() {
   $('#prov').value = prov;
   $('#key').value = keyOf(prov);
   $('#kgroq').value = keyOf('groq'); $('#kgem').value = keyOf('gemini');
-  $('#model').value = store.get('jarvis:model2:' + prov, PRESETS[prov].model);
+  let savedModel = store.get('jarvis:model2:' + prov, PRESETS[prov].model);
+  // Modelos que Groq ya retiró: se cambian solos por el recomendado
+  if (prov === 'groq' && /^(llama-3\.3-70b-versatile|llama-3\.1-8b-instant|qwen\/qwen3-32b|meta-llama\/llama-4-scout.*)$/.test(savedModel)) {
+    savedModel = PRESETS.groq.model; store.set('jarvis:model2:groq', savedModel);
+  }
+  $('#model').value = savedModel;
   $('#url').value = store.get('jarvis:url', PRESETS.custom.url);
   $('#urlRow').hidden = prov !== 'custom';
   $('#kgroqRow').hidden = prov === 'groq'; $('#kgemRow').hidden = prov === 'gemini';
@@ -842,8 +948,15 @@ async function askLLM(msgs, tools) {
           throw { message: 'No pude conectar con el proveedor. Revisa tu internet o la URL.' };
         }
         const d = r.data;
-        if (r.ok) { model = mdl; return d; }
-        last = { status: r.status, detail: (Array.isArray(d) ? d[0] : d)?.error?.message || '' };
+        if (r.ok) {
+          if (mdl !== c.model && last.status === 404) { // el modelo elegido ya no existe: se guarda el que sí funciona
+            $('#model').value = mdl; store.set('jarvis:model2:' + c.prov, mdl);
+          }
+          model = mdl; return d;
+        }
+        const info = { status: r.status, detail: (Array.isArray(d) ? d[0] : d)?.error?.message || '' };
+        // Un 404 (modelo retirado) no tapa un error más útil de otro modelo (límite, saturación, timeout)
+        if (r.status !== 404 || (!last.status && !last.detail)) last = info;
         // Fallo al armar la llamada a una herramienta: otro modelo suele acertar
         if (r.status === 400 && more && /tool|function/i.test(last.detail)) break;
         if ([400, 401, 403].includes(r.status)) throw { message: r.status === 401 ? `La clave de ${P.name} no es válida. Revísala en el panel de API (doble clic en RADEX).` : `Error ${r.status}. ${last.detail}`.trim() };
@@ -871,7 +984,7 @@ async function askLLM(msgs, tools) {
     if (!m) throw { message: 'El proveedor no devolvió respuesta.' };
     const { reasoning, reasoning_content, ...am } = m; // el razonamiento interno no se reenvía
     messages.push(am);
-    if (!m.tool_calls || !m.tool_calls.length) return { text: (m.content || '').trim() };
+    if (!m.tool_calls || !m.tool_calls.length) return { text: (m.content || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim() };
     for (const call of m.tool_calls) {
       const t = tools.find((x) => x.name === call.function.name);
       let input = {};
