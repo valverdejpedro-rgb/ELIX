@@ -30,3 +30,8 @@ Tras una respuesta Radex sigue atento 12 s: puedes continuar sin repetir "Radex"
 
 ## Probar en local
 npm install && npm start
+
+## Avatares (v1.0.8)
+Abajo, en las opciones, el selector "Avatar" permite elegir Orbe, Holograma mujer u Holograma hombre.
+Las imágenes están en `app/avatars/` (mujer.png y hombre.png, con fondo transparente): puedes reemplazarlas por otras
+manteniendo el mismo nombre. También se puede decir "pon el avatar de mujer" por voz.
