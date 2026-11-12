@@ -156,8 +156,9 @@ async function videoCmd(page, fn, arg) {
       case 'reanudar': v.play(); return 'Reanudado.';
       case 'silenciar': v.muted = true; return 'Video silenciado.';
       case 'activar_sonido': v.muted = false; return 'Sonido activado.';
-      case 'subir_volumen': v.muted = false; v.volume = Math.min(1, v.volume + 0.2); return 'Volumen: ' + Math.round(v.volume * 100) + '%';
-      case 'bajar_volumen': v.volume = Math.max(0, v.volume - 0.2); return 'Volumen: ' + Math.round(v.volume * 100) + '%';
+      case 'establecer_volumen': { const n = Number(arg); if (!(n >= 0 && n <= 100)) return 'Dime un porcentaje entre 0 y 100.'; v.muted = false; v.volume = n / 100; return 'Volumen del video al ' + Math.round(v.volume * 100) + '%'; }
+      case 'subir_volumen': v.muted = false; v.volume = Math.min(1, v.volume + ((arg > 0 && arg <= 100 ? arg : 20) / 100)); return 'Volumen del video: ' + Math.round(v.volume * 100) + '%';
+      case 'bajar_volumen': v.volume = Math.max(0, v.volume - ((arg > 0 && arg <= 100 ? arg : 20) / 100)); return 'Volumen del video: ' + Math.round(v.volume * 100) + '%';
       case 'adelantar': v.currentTime += arg || 10; return 'Adelanté ' + (arg || 10) + ' segundos.';
       case 'retroceder': v.currentTime = Math.max(0, v.currentTime - (arg || 10)); return 'Retrocedí ' + (arg || 10) + ' segundos.';
       case 'reiniciar': v.currentTime = 0; v.play(); return 'Video reiniciado.';

@@ -97,6 +97,58 @@ function sendKey(vk, times = 1) {
   const script = `$w=New-Object -ComObject WScript.Shell; 1..${n} | ForEach-Object { $w.SendKeys([char]${k}) }`;
   return new Promise((res, rej) => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 15000 }, (err) => (err ? rej(err) : res())));
 }
+// Volumen real de Windows (Core Audio): leer, fijar un porcentaje exacto, silenciar y quitar el silencio.
+// Solo se ejecutan órdenes fijas (get/set/up/down/mute/unmute) con un número ya validado: nunca texto libre.
+const VOL_CS = [
+  'using System; using System.Runtime.InteropServices;',
+  '[Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+  'interface IAudioEndpointVolume { int f(); int g(); int h(); int i();',
+  '  int SetMasterVolumeLevelScalar(float fLevel, ref Guid ctx); int j();',
+  '  int GetMasterVolumeLevelScalar(out float pfLevel); int k(); int l(); int m(); int n();',
+  '  int SetMute([MarshalAs(UnmanagedType.Bool)] bool bMute, ref Guid ctx);',
+  '  int GetMute([MarshalAs(UnmanagedType.Bool)] out bool pbMute); }',
+  '[Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+  'interface IMMDevice { int Activate(ref Guid id, int clsCtx, int activationParams, out IAudioEndpointVolume aev); }',
+  '[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+  'interface IMMDeviceEnumerator { int f(); int GetDefaultAudioEndpoint(int dataFlow, int role, out IMMDevice endpoint); }',
+  '[ComImport, Guid("BCDE0395-E52F-49B1-8A5D-93FA4F1C6D1A")] class MMDeviceEnumeratorComObject { }',
+  'public class Vol {',
+  '  static IAudioEndpointVolume Ep() {',
+  '    var en = new MMDeviceEnumeratorComObject() as IMMDeviceEnumerator; IMMDevice dev;',
+  '    Marshal.ThrowExceptionForHR(en.GetDefaultAudioEndpoint(0, 1, out dev));',
+  '    Guid iid = typeof(IAudioEndpointVolume).GUID; IAudioEndpointVolume v;',
+  '    Marshal.ThrowExceptionForHR(dev.Activate(ref iid, 23, 0, out v)); return v; }',
+  '  public static float Get() { float l; Marshal.ThrowExceptionForHR(Ep().GetMasterVolumeLevelScalar(out l)); return l; }',
+  '  public static void Set(float l) { Guid g = Guid.Empty; Marshal.ThrowExceptionForHR(Ep().SetMasterVolumeLevelScalar(l, ref g)); }',
+  '  public static bool GetMute() { bool b; Marshal.ThrowExceptionForHR(Ep().GetMute(out b)); return b; }',
+  '  public static void SetMute(bool b) { Guid g = Guid.Empty; Marshal.ThrowExceptionForHR(Ep().SetMute(b, ref g)); } }',
+].join('\n');
+function psVolume(cmd, value) {
+  if (!['get', 'set', 'up', 'down', 'mute', 'unmute'].includes(cmd)) return Promise.reject(new Error('orden no válida'));
+  const v = Math.max(0, Math.min(100, parseInt(value, 10) || 0));
+  const script = [
+    "$ErrorActionPreference='Stop'",
+    "Add-Type -TypeDefinition @'", VOL_CS, "'@",
+    `$cmd='${cmd}'; $v=${v}`,
+    '$cur=[math]::Round([Vol]::Get()*100)',
+    'switch($cmd){',
+    "  'set'{ [Vol]::Set([single]($v/100)); if($v -gt 0){[Vol]::SetMute($false)} }",
+    "  'up'{ $n=[math]::Min(100,$cur+$v); [Vol]::Set([single]($n/100)); [Vol]::SetMute($false) }",
+    "  'down'{ $n=[math]::Max(0,$cur-$v); [Vol]::Set([single]($n/100)) }",
+    "  'mute'{ [Vol]::SetMute($true) }",
+    "  'unmute'{ [Vol]::SetMute($false) }",
+    '}',
+    '$now=[math]::Round([Vol]::Get()*100); $m=[Vol]::GetMute()',
+    'Write-Output ("VOL:{0}|{1}" -f $now,[int]$m)',
+  ].join('\n');
+  const enc = Buffer.from(script, 'utf16le').toString('base64');
+  return new Promise((res, rej) => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', enc],
+    { windowsHide: true, timeout: 20000 }, (err, out) => {
+      const r = /VOL:(\d+)\|([01])/.exec(String(out || ''));
+      if (err || !r) return rej(err || new Error('sin respuesta'));
+      res({ vol: +r[1], mute: r[2] === '1' });
+    }));
+}
 const NATIVE = {
   async abrir_aplicacion({ nombre }) {
     let q = nrm(nombre); if (!q) return 'Dime qué aplicación abrir.';
@@ -111,11 +163,32 @@ const NATIVE = {
     const k = FOLDERS[nrm(carpeta)]; if (!k) return 'Carpetas disponibles: descargas, documentos, escritorio, imágenes, música, videos.';
     const err = await shell.openPath(app.getPath(k)); return err ? 'No pude abrirla: ' + err : `Abrí ${carpeta}.`;
   },
-  async ajustar_volumen({ accion, pasos }) {
-    if (!['subir', 'bajar', 'silenciar'].includes(accion)) return 'Acción no válida.';
-    if (accion === 'silenciar') { await sendKey(KEYS.silenciar, 1); return 'Alterné el silencio del PC.'; }
-    const n = Math.max(1, Math.min(25, parseInt(pasos, 10) || 5));
-    await sendKey(KEYS[accion], n); return `Volumen del PC ${accion === 'subir' ? 'subido' : 'bajado'} (${n * 2}%).`;
+  async ajustar_volumen({ accion, porcentaje, pasos }) {
+    const cmds = { subir: 'up', bajar: 'down', establecer: 'set', consultar: 'get', silenciar: 'mute', activar_sonido: 'unmute' };
+    if (!Object.prototype.hasOwnProperty.call(cmds, accion)) return 'Acción no válida.';
+    let p = parseInt(porcentaje, 10);
+    if (accion === 'establecer') { if (!Number.isFinite(p) || p < 0 || p > 100) return 'Dime un porcentaje entre 0 y 100.'; }
+    else if (accion === 'subir' || accion === 'bajar') {
+      if (!Number.isFinite(p)) p = pasos ? parseInt(pasos, 10) * 2 : 10; // sin cantidad: 10 %
+      p = Math.max(1, Math.min(100, p || 10));
+    } else p = 0;
+    try {
+      const { vol, mute } = await psVolume(cmds[accion], p);
+      const sil = mute ? ' (está silenciado)' : '';
+      return {
+        consultar: `El volumen del PC está al ${vol}%${mute ? ' y está silenciado' : ''}.`,
+        establecer: `Volumen del PC al ${vol}%.`,
+        subir: `Volumen del PC subido al ${vol}%.`,
+        bajar: `Volumen del PC bajado al ${vol}%${sil}.`,
+        silenciar: `PC silenciado (volumen ${vol}%).`,
+        activar_sonido: `Sonido del PC activado (volumen ${vol}%).`,
+      }[accion];
+    } catch (e) {
+      // Respaldo: teclas de volumen (sin porcentaje exacto)
+      if (accion === 'subir' || accion === 'bajar') { const n = Math.max(1, Math.min(50, Math.round(p / 2))); await sendKey(KEYS[accion], n); return `Volumen del PC ${accion === 'subir' ? 'subido' : 'bajado'} unos ${n * 2}% (no pude leer el valor exacto).`; }
+      if (accion === 'silenciar' || accion === 'activar_sonido') { await sendKey(KEYS.silenciar, 1); return 'Alterné el silencio del PC (no pude comprobar el estado exacto).'; }
+      throw new Error('No pude acceder al control de volumen de Windows.');
+    }
   },
   async control_multimedia({ accion }) {
     if (!['play_pausa', 'siguiente', 'anterior'].includes(accion)) return 'Acción no válida.';
