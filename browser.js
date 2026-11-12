@@ -151,14 +151,26 @@ async function videoCmd(page, fn, arg) {
   return page.evaluate(({ fn, arg }) => {
     const v = document.querySelector('video');
     if (!v) return 'NOVIDEO';
+    // Volumen: se usa el reproductor de YouTube (el mismo control que ves en pantalla y que YouTube recuerda);
+    // si no está disponible, el elemento de video.
+    const pl = document.getElementById('movie_player');
+    const api = pl && typeof pl.setVolume === 'function' && typeof pl.getVolume === 'function' ? pl : null;
+    const curVol = () => Math.round(api ? api.getVolume() : v.volume * 100);
+    const isMuted = () => (api && typeof api.isMuted === 'function' ? api.isMuted() : v.muted);
+    const setVol = (n) => {
+      n = Math.max(0, Math.min(100, Math.round(n)));
+      if (api) { if (n > 0 && isMuted()) api.unMute(); api.setVolume(n); } else { if (n > 0) v.muted = false; v.volume = n / 100; }
+      return curVol();
+    };
+    const step = arg > 0 && arg <= 100 ? arg : 20;
     switch (fn) {
       case 'pausar': v.pause(); return 'Pausado.';
       case 'reanudar': v.play(); return 'Reanudado.';
-      case 'silenciar': v.muted = true; return 'Video silenciado.';
-      case 'activar_sonido': v.muted = false; return 'Sonido activado.';
-      case 'establecer_volumen': { const n = Number(arg); if (!(n >= 0 && n <= 100)) return 'Dime un porcentaje entre 0 y 100.'; v.muted = false; v.volume = n / 100; return 'Volumen del video al ' + Math.round(v.volume * 100) + '%'; }
-      case 'subir_volumen': v.muted = false; v.volume = Math.min(1, v.volume + ((arg > 0 && arg <= 100 ? arg : 20) / 100)); return 'Volumen del video: ' + Math.round(v.volume * 100) + '%';
-      case 'bajar_volumen': v.volume = Math.max(0, v.volume - ((arg > 0 && arg <= 100 ? arg : 20) / 100)); return 'Volumen del video: ' + Math.round(v.volume * 100) + '%';
+      case 'silenciar': if (api && api.mute) api.mute(); else v.muted = true; return 'Video silenciado (volumen del video: ' + curVol() + '%).';
+      case 'activar_sonido': if (api && api.unMute) api.unMute(); else v.muted = false; return 'Sonido del video activado (volumen: ' + curVol() + '%).';
+      case 'establecer_volumen': { const n = Number(arg); if (!(n >= 0 && n <= 100)) return 'Dime un porcentaje entre 0 y 100.'; return 'Volumen del video al ' + setVol(n) + '%.'; }
+      case 'subir_volumen': return 'Volumen del video subido al ' + setVol(curVol() + step) + '%.';
+      case 'bajar_volumen': return 'Volumen del video bajado al ' + setVol(curVol() - step) + '%' + (isMuted() ? ' (está silenciado)' : '') + '.';
       case 'adelantar': v.currentTime += arg || 10; return 'Adelanté ' + (arg || 10) + ' segundos.';
       case 'retroceder': v.currentTime = Math.max(0, v.currentTime - (arg || 10)); return 'Retrocedí ' + (arg || 10) + ' segundos.';
       case 'reiniciar': v.currentTime = 0; v.play(); return 'Video reiniciado.';
