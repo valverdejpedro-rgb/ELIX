@@ -5,6 +5,9 @@ const fs = require('fs');
 const path = require('path');
 const browser = require('./browser');
 
+// Se conserva la carpeta de datos de ELIX (claves, ajustes, notas, sesión de YouTube) al cambiar el nombre a Radex
+app.setPath('userData', path.join(app.getPath('appData'), 'ELIX'));
+
 // Servimos app/ en localhost con puerto fijo: así localStorage (tus claves y
 // ajustes) se conserva entre actualizaciones y YouTube/micrófono funcionan.
 const PORT = 38417;
@@ -54,7 +57,7 @@ let win;
 async function createWindow() {
   const ok = await startServer();
   win = new BrowserWindow({
-    width: 900, height: 780, backgroundColor: '#050b14', title: 'ELIX',
+    width: 900, height: 780, backgroundColor: '#050b14', title: 'Radex',
     autoHideMenuBar: true,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false }
   });

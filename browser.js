@@ -34,10 +34,10 @@ async function ensure(nombre) {
   const ctx = await chromium.launchPersistentContext(dir, {
     executablePath: exe, headless: false, viewport: null,
     chromiumSandbox: true, // evita el aviso de --no-sandbox
-    args: ['--start-maximized', '--autoplay-policy=no-user-gesture-required', '--disable-blink-features=AutomationControlled'],
+    args: ['--start-maximized', '--autoplay-policy=no-user-gesture-required'],
     ignoreDefaultArgs: ['--enable-automation', '--disable-extensions', '--disable-component-update', '--disable-background-networking', '--disable-default-apps'],
   });
-  // Que YouTube vea un Chrome normal y no uno "controlado por automatización"
+  // Oculta la marca de automatización desde la propia página (sin flags de línea de comandos, así Chrome no muestra avisos)
   await ctx.addInitScript(() => { try { Object.defineProperty(navigator, 'webdriver', { get: () => undefined }); } catch {} });
   const page = ctx.pages()[0] || await ctx.newPage();
   const ses = { ctx, page };

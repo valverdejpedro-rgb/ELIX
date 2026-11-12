@@ -1,8 +1,8 @@
 {
   "name": "elix",
-  "productName": "ELIX",
-  "version": "1.0.3",
-  "description": "ELIX - asistente de IA",
+  "productName": "Radex",
+  "version": "1.0.4",
+  "description": "Radex - asistente de IA",
   "main": "main.js",
   "author": "Pedro",
   "license": "UNLICENSED",
@@ -21,7 +21,7 @@
   },
   "build": {
     "appId": "com.pedro.elix",
-    "productName": "ELIX",
+    "productName": "Radex",
     "files": ["main.js", "preload.js", "browser.js", "app/**/*"],
     "win": { "target": "nsis" },
     "nsis": {
