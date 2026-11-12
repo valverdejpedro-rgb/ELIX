@@ -123,6 +123,7 @@ const VOL_CS = [
   '  public static bool GetMute() { bool b; Marshal.ThrowExceptionForHR(Ep().GetMute(out b)); return b; }',
   '  public static void SetMute(bool b) { Guid g = Guid.Empty; Marshal.ThrowExceptionForHR(Ep().SetMute(b, ref g)); } }',
 ].join('\n');
+let volKnown = { vol: null, mute: false };
 function psVolume(cmd, value) {
   if (!['get', 'set', 'up', 'down', 'mute', 'unmute'].includes(cmd)) return Promise.reject(new Error('orden no válida'));
   const v = Math.max(0, Math.min(100, parseInt(value, 10) || 0));
@@ -143,10 +144,13 @@ function psVolume(cmd, value) {
   ].join('\n');
   const enc = Buffer.from(script, 'utf16le').toString('base64');
   return new Promise((res, rej) => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', enc],
-    { windowsHide: true, timeout: 20000 }, (err, out) => {
+    { windowsHide: true, timeout: 30000 }, (err, out, errOut) => {
       const r = /VOL:(\d+)\|([01])/.exec(String(out || ''));
-      if (err || !r) return rej(err || new Error('sin respuesta'));
-      res({ vol: +r[1], mute: r[2] === '1' });
+      if (r) return res({ vol: +r[1], mute: r[2] === '1' });
+      let why = err && err.killed ? 'tiempo agotado' : String(errOut || (err && err.message) || 'sin respuesta');
+      why = why.replace(/[A-Za-z0-9+\/=]{60,}/g, '').replace(/\s+/g, ' ').trim().slice(0, 160) || 'sin respuesta';
+      console.error('Volumen (Core Audio):', why);
+      rej(new Error(why));
     }));
 }
 const NATIVE = {
@@ -172,8 +176,10 @@ const NATIVE = {
       if (!Number.isFinite(p)) p = pasos ? parseInt(pasos, 10) * 2 : 10; // sin cantidad: 10 %
       p = Math.max(1, Math.min(100, p || 10));
     } else p = 0;
+    let why = '';
     try {
       const { vol, mute } = await psVolume(cmds[accion], p);
+      volKnown = { vol, mute };
       const sil = mute ? ' (está silenciado)' : '';
       return {
         consultar: `El volumen del PC está al ${vol}%${mute ? ' y está silenciado' : ''}.`,
@@ -183,12 +189,21 @@ const NATIVE = {
         silenciar: `PC silenciado (volumen ${vol}%).`,
         activar_sonido: `Sonido del PC activado (volumen ${vol}%).`,
       }[accion];
-    } catch (e) {
-      // Respaldo: teclas de volumen (sin porcentaje exacto)
-      if (accion === 'subir' || accion === 'bajar') { const n = Math.max(1, Math.min(50, Math.round(p / 2))); await sendKey(KEYS[accion], n); return `Volumen del PC ${accion === 'subir' ? 'subido' : 'bajado'} unos ${n * 2}% (no pude leer el valor exacto).`; }
-      if (accion === 'silenciar' || accion === 'activar_sonido') { await sendKey(KEYS.silenciar, 1); return 'Alterné el silencio del PC (no pude comprobar el estado exacto).'; }
-      throw new Error('No pude acceder al control de volumen de Windows.');
+    } catch (e) { why = e.message; }
+    // Respaldo con las teclas de volumen de Windows (cada pulsación mueve ~2 %). No se puede leer el nivel real.
+    const nota = ` (modo básico; el acceso directo a Windows falló: ${why})`;
+    if (accion === 'establecer') {
+      await sendKey(KEYS.bajar, 50); await sendKey(KEYS.subir, Math.round(p / 2));
+      volKnown = { vol: Math.round(p / 2) * 2, mute: false };
+      return `Dejé el volumen del PC en aproximadamente ${volKnown.vol}%${nota}.`;
     }
+    if (accion === 'subir' || accion === 'bajar') {
+      const n = Math.max(1, Math.min(50, Math.round(p / 2))); await sendKey(KEYS[accion], n);
+      if (volKnown.vol != null) volKnown.vol = Math.max(0, Math.min(100, volKnown.vol + (accion === 'subir' ? n * 2 : -n * 2)));
+      return `Volumen del PC ${accion === 'subir' ? 'subido' : 'bajado'} unos ${n * 2}%${volKnown.vol != null ? ` (debería quedar cerca del ${volKnown.vol}%)` : ''}${nota}.`;
+    }
+    if (accion === 'silenciar' || accion === 'activar_sonido') { await sendKey(KEYS.silenciar, 1); return `Alterné el silencio del PC; no puedo comprobar si quedó silenciado o con sonido${nota}.`; }
+    return volKnown.vol != null ? `No puedo leer el volumen real ahora${nota}. Lo último que fijé fue ${volKnown.vol}%.` : `No puedo leer el volumen real${nota}.`;
   },
   async control_multimedia({ accion }) {
     if (!['play_pausa', 'siguiente', 'anterior'].includes(accion)) return 'Acción no válida.';
