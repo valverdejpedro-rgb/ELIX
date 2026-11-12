@@ -35,3 +35,10 @@ npm install && npm start
 Abajo, en las opciones, el selector "Avatar" permite elegir Orbe, Holograma mujer u Holograma hombre.
 Las imágenes están en `app/avatars/` (mujer.png y hombre.png, con fondo transparente): puedes reemplazarlas por otras
 manteniendo el mismo nombre. También se puede decir "pon el avatar de mujer" por voz.
+
+## Herramientas avanzadas, etapa 2 (v1.0.24)
+- Nueva herramienta `audio_estado` (SOLO LECTURA): dice qué dispositivo de audio se usa, su volumen/silencio y qué apps están sonando.
+  Código: `native/audio.ps1` (C# con COM de Windows) y `tools/audio.js`. No cambia nada en el PC.
+- Confirmación vencida: si dices "sí" cuando ya venció, Radex avisa "esa confirmación ya venció, no hice nada" y nunca ejecuta.
+  Tiempo para responder: 5 s desde que Radex termina de preguntar (máximo 10 s desde la orden). Un "sí" o "no" tardío se entiende hasta 15 s después, sin decir "Radex".
+- Probar en Windows: `node selftest.js` (la parte [4] lee tu audio real).
