@@ -18,7 +18,7 @@
 const fs = require('fs');
 const crypto = require('crypto');
 
-const CONFIRM_TTL_MS = 40000;
+const CONFIRM_TTL_MS = 10000; // tope absoluto: la respuesta debe llegar como máximo 10 s después de pedir la acción
 const CTRL = /[\u0000-\u001f\u007f]/;
 const SECRET_KEY = /(pass|clave|key|token|secret|password|cred)/i;
 const LOG_MAX = 512 * 1024;
@@ -175,8 +175,11 @@ function createRegistry({ logFile = null, ttlMs = CONFIRM_TTL_MS } = {}) {
   async function confirm(accept) {
     const p = pending; pending = null;
     if (!p) return { ...fail('No hay ninguna acción pendiente de confirmar.'), none: true };
-    if (!accept) { audit({ tool: p.name, estado: 'cancelada' }); return { ok: true, verified: false, cancelled: true, mensaje: 'Cancelado.', text: 'Cancelado.' }; }
-    if (Date.now() > p.exp) { audit({ tool: p.name, estado: 'vencida' }); return { ...fail('La confirmación venció; pídelo de nuevo.'), expired: true }; }
+    if (!accept) { audit({ tool: p.name, estado: Date.now() > p.exp ? 'vencida-cancelada' : 'cancelada' }); return { ok: true, verified: false, cancelled: true, mensaje: 'Cancelado.', text: 'Cancelado.' }; }
+    if (Date.now() > p.exp) {
+      audit({ tool: p.name, estado: 'vencida' });
+      return { ...fail('La confirmación venció y no se hizo nada (' + p.resumen + '). Hay que pedirlo de nuevo.'), expired: true, resumen: p.resumen };
+    }
     const def = tools.get(p.name);
     if (!def) return fail('La herramienta ya no está disponible.');
     return execute(def, p.args, p.resolved, 'confirmada');

@@ -8,8 +8,8 @@ const registry = createRegistry();
 const bridge = createBridge();
 
 require('./diagnostic')(registry, bridge);
+require('./audio')(registry, bridge); // etapa 2: audio de solo lectura
 // Etapas siguientes (aún no incluidas):
-//   require('./audio')(registry, bridge);
 //   require('./apps')(registry, bridge);
 //   require('./browser-tools')(registry, bridge);
 
