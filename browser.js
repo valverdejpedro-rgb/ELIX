@@ -33,6 +33,7 @@ async function ensure(nombre) {
   const dir = path.join(app.getPath('userData'), 'browser-profiles', name);
   const ctx = await chromium.launchPersistentContext(dir, {
     executablePath: exe, headless: false, viewport: null,
+    chromiumSandbox: true, // evita el aviso de --no-sandbox
     args: ['--start-maximized', '--autoplay-policy=no-user-gesture-required'],
     ignoreDefaultArgs: ['--enable-automation'],
   });
