@@ -123,6 +123,61 @@ const VOL_CS = [
   '  public static bool GetMute() { bool b; Marshal.ThrowExceptionForHR(Ep().GetMute(out b)); return b; }',
   '  public static void SetMute(bool b) { Guid g = Guid.Empty; Marshal.ThrowExceptionForHR(Ep().SetMute(b, ref g)); } }',
 ].join('\n');
+const PS_EXE = require('path').join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+function psRun(script, timeout = 30000) {
+  const enc = Buffer.from(script, 'utf16le').toString('base64');
+  return new Promise((res, rej) => execFile(PS_EXE, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', enc],
+    { windowsHide: true, timeout, maxBuffer: 4 * 1024 * 1024 }, (err, out, errOut) => {
+      if (err && !String(out || '').trim()) {
+        let why = err.killed ? 'tiempo agotado' : String(errOut || err.message || 'sin respuesta');
+        why = why.replace(/[A-Za-z0-9+\/=]{60,}/g, '').replace(/\s+/g, ' ').trim().slice(0, 160) || 'sin respuesta';
+        return rej(new Error(why));
+      }
+      res(String(out || ''));
+    }));
+}
+// Datos de la versión de PowerShell y su modo (si Windows lo restringe, no se pueden compilar tipos)
+const psDiag = () => psRun("'PS ' + $PSVersionTable.PSVersion.ToString() + ', modo ' + $ExecutionContext.SessionState.LanguageMode + ', ' + $(if([Environment]::Is64BitProcess){'64 bits'}else{'32 bits'})", 10000).then((s) => s.trim()).catch(() => '');
+const SPECS_PS = [
+  "$ErrorActionPreference='SilentlyContinue'",
+  '$cs=Get-CimInstance Win32_ComputerSystem; $os=Get-CimInstance Win32_OperatingSystem; $cpu=@(Get-CimInstance Win32_Processor)[0]',
+  '$bios=Get-CimInstance Win32_BIOS; $mem=@(Get-CimInstance Win32_PhysicalMemory); $gpu=@(Get-CimInstance Win32_VideoController)',
+  "$ld=@(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3'); $bat=@(Get-CimInstance Win32_Battery)[0]; $pd=@(Get-PhysicalDisk)",
+  '$o=[ordered]@{',
+  ' fab=$cs.Manufacturer; modelo=$cs.Model; tipo=$cs.SystemType; so=$os.Caption; ver=$os.Version; build=$os.BuildNumber; arq=$os.OSArchitecture;',
+  ' cpu=$cpu.Name; nuc=$cpu.NumberOfCores; hil=$cpu.NumberOfLogicalProcessors; mhz=$cpu.MaxClockSpeed; carga=$cpu.LoadPercentage;',
+  ' ramTotal=$cs.TotalPhysicalMemory; ramLibreKB=$os.FreePhysicalMemory; ramTotalKB=$os.TotalVisibleMemorySize;',
+  ' mods=@($mem | ForEach-Object { @{ cap=$_.Capacity; mhz=$_.Speed; tipo=$_.SMBIOSMemoryType } });',
+  ' gpu=@($gpu | ForEach-Object { @{ n=$_.Name; drv=$_.DriverVersion; w=$_.CurrentHorizontalResolution; h=$_.CurrentVerticalResolution; hz=$_.CurrentRefreshRate } });',
+  ' discos=@($pd | ForEach-Object { @{ n=$_.FriendlyName; t=[string]$_.MediaType; b=[string]$_.BusType; sz=$_.Size } });',
+  ' unidades=@($ld | ForEach-Object { @{ id=$_.DeviceID; sz=$_.Size; libre=$_.FreeSpace } });',
+  ' bat=$(if($bat){ @{ pct=$bat.EstimatedChargeRemaining; est=$bat.BatteryStatus } } else { $null });',
+  ' bios=$bios.SMBIOSBIOSVersion',
+  '}',
+  'Write-Output ("SPECS:" + ($o | ConvertTo-Json -Depth 5 -Compress))',
+].join('\n');
+const arr = (x) => (x == null ? [] : Array.isArray(x) ? x : [x]);
+function formatSpecs(j) {
+  const gb = (b, d = 0) => (b / 1073741824).toFixed(d).replace(/\.0+$/, '');
+  const up = os.uptime(), parts = [];
+  const eq = [j.fab, j.modelo].filter(Boolean).join(' ');
+  parts.push(`Equipo: ${eq || 'no disponible'}${j.tipo ? ` (${j.tipo})` : ''}.`);
+  parts.push(`Sistema: ${j.so || os.version()}${j.ver ? `, versión ${j.ver}` : ''}${j.build ? ` (compilación ${j.build})` : ''}${j.arq ? `, ${j.arq}` : ''}. Encendido hace ${Math.floor(up / 3600)} h ${Math.floor((up % 3600) / 60)} min.`);
+  if (j.cpu) parts.push(`Procesador: ${String(j.cpu).replace(/\s+/g, ' ').trim()}, ${j.nuc || '?'} núcleos y ${j.hil || '?'} hilos${j.mhz ? `, hasta ${(j.mhz / 1000).toFixed(2)} GHz` : ''}${j.carga != null ? `; uso actual ${j.carga}%` : ''}.`);
+  const TYPES = { 20: 'DDR', 21: 'DDR2', 24: 'DDR3', 26: 'DDR4', 34: 'DDR5' };
+  const mods = arr(j.mods).map((x) => `${gb(x.cap)} GB${TYPES[x.tipo] ? ' ' + TYPES[x.tipo] : ''}${x.mhz ? ' a ' + x.mhz + ' MHz' : ''}`);
+  const tot = j.ramTotal || (j.ramTotalKB || 0) * 1024, libre = (j.ramLibreKB || 0) * 1024;
+  parts.push(`Memoria RAM: ${gb(tot, 1)} GB en total${mods.length ? ` (${mods.length} módulo${mods.length > 1 ? 's' : ''}: ${mods.join(' + ')})` : ''}; en uso ${gb(tot - libre, 1)} GB y libres ${gb(libre, 1)} GB.`);
+  const gs = arr(j.gpu).filter((g) => g.n).map((g) => `${g.n}${g.w ? ` (pantalla ${g.w}x${g.h}${g.hz ? ' a ' + g.hz + ' Hz' : ''})` : ''}`);
+  if (gs.length) parts.push(`Gráficos: ${gs.join(' y ')}.`);
+  const ds = arr(j.discos).filter((d) => d.n).map((d) => `${String(d.n).trim()} ${gb(d.sz)} GB${d.t && d.t !== 'Unspecified' ? ' ' + d.t : ''}${d.b ? ' ' + d.b : ''}`);
+  if (ds.length) parts.push(`Discos: ${ds.join('; ')}.`);
+  const us = arr(j.unidades).map((u) => `${u.id} ${gb(u.libre, 1)} GB libres de ${gb(u.sz, 1)} GB`);
+  if (us.length) parts.push(`Unidades: ${us.join('; ')}.`);
+  if (j.bat) parts.push(`Batería: ${j.bat.pct}%${{ 1: ' (descargándose)', 2: ' (conectado a la corriente)', 3: ' (cargada)', 6: ' (cargándose)' }[j.bat.est] || ''}.`);
+  if (j.bios) parts.push(`BIOS: ${j.bios}.`);
+  return parts.join('\n');
+}
 let volKnown = { vol: null, mute: false };
 function psVolume(cmd, value) {
   if (!['get', 'set', 'up', 'down', 'mute', 'unmute'].includes(cmd)) return Promise.reject(new Error('orden no válida'));
@@ -143,7 +198,7 @@ function psVolume(cmd, value) {
     'Write-Output ("VOL:{0}|{1}" -f $now,[int]$m)',
   ].join('\n');
   const enc = Buffer.from(script, 'utf16le').toString('base64');
-  return new Promise((res, rej) => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', enc],
+  return new Promise((res, rej) => execFile(PS_EXE, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', enc],
     { windowsHide: true, timeout: 30000 }, (err, out, errOut) => {
       const r = /VOL:(\d+)\|([01])/.exec(String(out || ''));
       if (r) return res({ vol: +r[1], mute: r[2] === '1' });
@@ -189,7 +244,7 @@ const NATIVE = {
         silenciar: `PC silenciado (volumen ${vol}%).`,
         activar_sonido: `Sonido del PC activado (volumen ${vol}%).`,
       }[accion];
-    } catch (e) { why = e.message; }
+    } catch (e) { why = e.message; const d = await psDiag(); if (d) why += ` [${d}]`; }
     // Respaldo con las teclas de volumen de Windows (cada pulsación mueve ~2 %). No se puede leer el nivel real.
     const nota = ` (modo básico; el acceso directo a Windows falló: ${why})`;
     if (accion === 'establecer') {
@@ -209,9 +264,15 @@ const NATIVE = {
     if (!['play_pausa', 'siguiente', 'anterior'].includes(accion)) return 'Acción no válida.';
     await sendKey(KEYS[accion], 1); return { play_pausa: 'Pausé o reanudé la reproducción.', siguiente: 'Siguiente canción.', anterior: 'Canción anterior.' }[accion];
   },
-  async info_del_sistema() {
+  async info_del_sistema({ detalle } = {}) {
     const c = os.cpus(), gb = (b) => (b / 1073741824).toFixed(1), up = os.uptime();
-    return `Procesador: ${c[0].model.trim()} (${c.length} núcleos). RAM: ${gb(os.totalmem() - os.freemem())} GB en uso de ${gb(os.totalmem())} GB. Encendido hace ${Math.floor(up / 3600)} h ${Math.floor((up % 3600) / 60)} min. Sistema: ${os.version()}.`;
+    const basico = `Procesador: ${c[0].model.trim()} (${c.length} núcleos lógicos). RAM: ${gb(os.totalmem() - os.freemem())} GB en uso de ${gb(os.totalmem())} GB. Encendido hace ${Math.floor(up / 3600)} h ${Math.floor((up % 3600) / 60)} min. Sistema: ${os.version()}.`;
+    if (detalle !== 'completo') return basico;
+    try {
+      const out = await psRun(SPECS_PS, 40000), i = out.indexOf('SPECS:');
+      if (i < 0) throw new Error('sin datos');
+      return formatSpecs(JSON.parse(out.slice(i + 6).trim().split('\n')[0]));
+    } catch (e) { return `${basico}\n(No pude obtener el detalle completo: ${e.message})`; }
   },
   async controlar_ventana({ aplicacion, accion }) {
     const cmd = { maximizar: 3, minimizar: 6, restaurar: 9 }[accion];
