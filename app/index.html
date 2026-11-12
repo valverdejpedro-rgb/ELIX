@@ -205,12 +205,17 @@ if (window.elixApp) {
   let ver = '', upd = { estado: 'inicio' };
   const paint = () => {
     const t = { buscando: ' · buscando actualización…', descargando: ` · descargando${upd.version ? ' ' + upd.version : ''}${upd.pct ? ' ' + upd.pct + '%' : ''}…`,
-      listo: ` · ${upd.version || 'nueva versión'} lista: clic para reiniciar`, 'al-dia': ' · al día ✓', error: ' · no pude buscar actualizaciones', dev: ' · modo desarrollo' }[upd.estado] || '';
+      listo: ` · ${upd.version || 'nueva versión'} lista: clic para reiniciar`, 'al-dia': ' · al día ✓', error: ' · no pude buscar actualizaciones (clic para ver el motivo)', dev: ' · modo desarrollo' }[upd.estado] || '';
     $('#ver').textContent = ver ? 'v' + ver + t : '';
+    $('#ver').title = upd.estado === 'error' && upd.detalle ? upd.detalle : 'Versión instalada (clic para buscar actualizaciones)';
   };
   elixApp.info().then((i) => { if (!i) return; ver = i.version; upd = i.status || upd; paint(); });
   elixApp.onUpdate((s) => { upd = s; paint(); });
-  $('#ver').onclick = () => (upd.estado === 'listo' ? elixApp.installNow() : elixApp.checkUpdate());
+  $('#ver').onclick = () => {
+    if (upd.estado === 'listo') return elixApp.installNow();
+    if (upd.estado === 'error' && upd.detalle) addLine('error', 'Actualización: ' + upd.detalle);
+    elixApp.checkUpdate();
+  };
 }
 $('#wake').checked = store.get('wake2', '1') === '1'; // activada por defecto
 $('#wake').onchange = (e) => store.set('wake2', e.target.checked ? '1' : '0');
@@ -379,7 +384,7 @@ function hint(t) {
   $('#interim').textContent = t; clearTimeout(hintT);
   hintT = setTimeout(() => { if ($('#interim').textContent === t) $('#interim').textContent = ''; }, 5000);
 }
-const AWAKE_MS = 12000; // tras una respuesta, 12 s para seguir hablando sin repetir “Radex”
+const AWAKE_MS = 0; // sin ventana de atención: cada orden debe empezar (o terminar) con “Radex”
 function onFinal(text) {
   if (!text) return;
   if ($('#wake').checked) {
