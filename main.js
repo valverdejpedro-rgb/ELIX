@@ -1,8 +1,9 @@
-const { app, BrowserWindow, Menu, shell, session } = require('electron');
+const { app, BrowserWindow, Menu, shell, session, ipcMain } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const browser = require('./browser');
 
 // Servimos app/ en localhost con puerto fijo: así localStorage (tus claves y
 // ajustes) se conserva entre actualizaciones y YouTube/micrófono funcionan.
@@ -28,6 +29,13 @@ function startServer() {
     server.listen(PORT, '127.0.0.1', () => resolve(true));
   });
 }
+
+// Control de navegadores: solo acepta llamadas de la propia ventana de ELIX
+ipcMain.handle('browser:run', (e, accion, args) => {
+  const u = (e.senderFrame && e.senderFrame.url) || '';
+  if (!u.startsWith(`http://localhost:${PORT}/`) && !u.startsWith('file://')) return 'No permitido.';
+  return browser.run(String(accion), args && typeof args === 'object' ? args : {});
+});
 
 let win;
 async function createWindow() {
