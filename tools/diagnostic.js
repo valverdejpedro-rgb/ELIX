@@ -16,14 +16,23 @@ module.exports = function registerDiagnostic(registry, bridge) {
       const ms = Date.now() - t0;
       let chk = null;
       try { chk = await bridge.request('selfcheck', {}, { timeout: 30000 }); } catch (e) { chk = { addType: false, error: e.message }; }
+      // Etapa 2: lectura real del audio de Windows (solo lectura)
+      let aud = null;
+      try {
+        const ta = Date.now();
+        const ar = await bridge.request('audio.leer', { direccion: 'salida' }, { module: 'audio', timeout: 30000 });
+        const d = JSON.parse(ar.json);
+        aud = { ok: true, ms: Date.now() - ta, devs: d.dispositivos.length, apps: d.apps.length, def: (d.dispositivos.find((x) => x.predeterminado) || {}).nombre || '' };
+      } catch (e) { aud = { ok: false, error: String((e && e.message) || e).split('\n')[0].slice(0, 160) }; }
       const lang = ping.mode === 'FullLanguage';
       const partes = [
         `${names.length} herramientas registradas`,
         `PowerShell ${ping.psVersion} (${ping.bits64 ? '64' : '32'} bits), modo ${ping.mode}, respuesta en ${ms} ms`,
         chk.addType ? `compilación C# correcta en ${chk.ms} ms` : `la compilación C# FALLÓ${chk.error ? ': ' + String(chk.error).slice(0, 160) : ''}`,
+        aud.ok ? `audio de Windows: ${aud.devs} dispositivo(s) de salida${aud.def ? ' (predeterminado: ' + aud.def + ')' : ''} y ${aud.apps} app(s) con sesión de audio, leído en ${aud.ms} ms` : `la lectura del audio FALLÓ: ${aud.error}`,
       ];
-      const ok = lang && !!chk.addType;
-      return { ok, verified: true, mensaje: partes.join('; ') + '.' + (ok ? '' : ' El audio avanzado necesita modo FullLanguage y compilación C#.'), detalle: 'Herramientas: ' + names.join(', ') };
+      const ok = lang && !!chk.addType && aud.ok;
+      return { ok, verified: true, mensaje: partes.join('; ') + '.' + (ok ? '' : ' El audio avanzado necesita modo FullLanguage, compilación C# y acceso al audio de Windows.'), detalle: 'Herramientas: ' + names.join(', ') };
     },
   });
 
