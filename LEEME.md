@@ -41,4 +41,5 @@ manteniendo el mismo nombre. También se puede decir "pon el avatar de mujer" po
   Código: `native/audio.ps1` (C# con COM de Windows) y `tools/audio.js`. No cambia nada en el PC.
 - Confirmación vencida: si dices "sí" cuando ya venció, Radex avisa "esa confirmación ya venció, no hice nada" y nunca ejecuta.
   Tiempo para responder: 5 s desde que Radex termina de preguntar (máximo 10 s desde la orden). Un "sí" o "no" tardío se entiende hasta 15 s después, sin decir "Radex".
-- Probar en Windows: `node selftest.js` (la parte [4] lee tu audio real).
+- Probar con el .exe instalado: decir "Radex, haz un diagnóstico de las herramientas" (incluye la lectura real del audio) y luego "Radex, ¿qué está sonando?".
+- Probar desde el código: `node selftest.js` (la parte [4] lee tu audio real).
