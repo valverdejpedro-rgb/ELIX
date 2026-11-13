@@ -152,6 +152,7 @@
 </form>
 <div class="opts">
   <label><input type="checkbox" id="wake"> Solo si digo “Radex”</label>
+  <label title="Dices “Radex” una vez para empezar y ya no hace falta repetirlo. Al terminar di “Radex, desactívate” y vuelve a dormir hasta que lo llames"><input type="checkbox" id="awake"> Modo conversación</label>
   <label title="Solo obedece lo que digas mientras mantienes pulsada la tecla Ctrl"><input type="checkbox" id="ptt"> Solo mientras mantengo Ctrl</label>
   <label><input type="checkbox" id="mute"> Sin voz</label>
   <button type="button" class="mini" id="diagBtn" title="Comprobar permiso, elegir micrófono y probar que te entiende">Probar micrófono</button>
@@ -329,7 +330,7 @@ async function speak(text) {
 
 /* ---------- Oído (dictation de Claude, o Web Speech como respaldo) ---------- */
 const ear = {
-  d: null, r: null, forceCloud: false, awakeUntil: 0,
+  d: null, r: null, forceCloud: false, session: false, // session: modo conversación activo (ya dijo “Radex”)
   // true = se escucha en la nube (Groq Whisper o Gemini); false = reconocimiento del navegador
   get gem() { const m = $('#earsel').value; return this.forceCloud || m === 'groq' || m === 'gemini' || (!this.r && !this.d); },
   async init() {
@@ -379,7 +380,7 @@ const ear = {
   },
   start() {
     if (!listening || busy || speaking) return;
-    setState('listening', 'Escuchando');
+    setState('listening', listenLabel());
     if (this.gem) { startMeter(); return; }
     if (this.d) return this.d.start().catch((e) => {
       if (e && e.code === 'not_granted') this.denied();
@@ -407,7 +408,25 @@ function hint(t) {
   $('#interim').textContent = t; clearTimeout(hintT);
   hintT = setTimeout(() => { if ($('#interim').textContent === t) $('#interim').textContent = ''; }, 5000);
 }
-const AWAKE_MS = 0; // sin ventana de atención: cada orden debe empezar (o terminar) con “Radex”
+// Modo conversación: “Radex, …” lo despierta y ya no hace falta repetir el nombre; “Radex, desactívate” lo duerme.
+// Dormido ignora todo lo que oye salvo “Radex”. Se puede desactivar en las opciones (entonces cada orden lleva “Radex”).
+$('#awake').checked = store.get('awake2', '1') === '1';
+$('#awake').onchange = (e) => { store.set('awake2', e.target.checked ? '1' : '0'); ear.session = false; refreshListenState(); };
+const modoConv = () => $('#wake').checked && $('#awake').checked;
+const SLEEP_RE = /\b(desactivate|desactivese|duermete|modo reposo|vete a dormir|a dormir)\b/;
+const WAKE_ANY = new RegExp(WAKE, 'i');
+function listenLabel() { return modoConv() ? (ear.session ? 'Atento' : 'Dormido: di «Radex»') : 'Escuchando'; }
+function refreshListenState() { if (listening && !busy && !speaking) setState('listening', listenLabel()); }
+function setSession(v) { ear.session = !!v; refreshListenState(); }
+async function dormir(text) {
+  setSession(false);
+  if (pendingConfirm) { pendingConfirm = null; try { window.elixTools.confirm(false); } catch {} }
+  addLine('user', text);
+  const r = 'Vale, me desactivo. Dime «Radex» cuando me necesites.';
+  addLine('jarvis', r);
+  busy = true; ear.stop();
+  try { await speak(r); } finally { busy = false; afterTurn(); }
+}
 const PTT = { on: store.get('ptt', '0') === '1', down: false, last: 0 };
 $('#ptt').checked = PTT.on;
 $('#ptt').onchange = (e) => { PTT.on = e.target.checked; store.set('ptt', PTT.on ? '1' : '0'); };
@@ -425,26 +444,34 @@ function onFinal(text) {
     const mm = text.match(WAKE_START), t2 = mm && mm[1].trim() ? mm[1].trim() : text;
     if (classifyYesNo(t2)) { send(t2); return; }
   }
+  if (modoConv()) { // “Radex, desactívate”: se duerme (estando atento también vale sin decir “Radex”)
+    const nt = text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ');
+    if (SLEEP_RE.test(nt) && (ear.session || WAKE_ANY.test(nt))) { dormir(text); return; }
+  }
   if ($('#wake').checked) {
+    const modo = modoConv(), playing = document.body.classList.contains('playing');
     let m = text.match(WAKE_START);
-    if (Date.now() < ear.awakeUntil) {
-      if (m && m[1].trim()) text = m[1].trim(); // ya está atento: si dice “Radex” igual, se lo quito
+    if (modo && ear.session && !playing) { // conversación abierta: no hace falta decir “Radex” (con música sonando sí, para no confundirse)
+      if (m && m[1].trim()) text = m[1].trim();
+      else if (m) return; // solo dijo “Radex” estando atento: no hay nada que hacer
     } else {
-      // Solo responde si dicen “Radex” al inicio (“Radex, busca…”) o al final (“…, Radex”)
+      // Dormido (o sin modo conversación): solo responde si dicen “Radex” al inicio (“Radex, busca…”) o al final (“…, Radex”)
       if (m) text = m[1].trim();
-      else if (!document.body.classList.contains('playing') && (m = text.match(WAKE_END))) text = m[1].trim();
-      else { hint('Oí: «' + text + '». Empieza diciendo “Radex”.'); return; }
-      if (!text && document.body.classList.contains('playing')) { hint('Dime la orden completa, por ejemplo: «Radex, pausa».'); return; }
-      if (!text) { // solo dijo “Radex”: no habla (con ruido se repetía sin parar); aviso en pantalla, como mucho cada 15 s
+      else if (!playing && (m = text.match(WAKE_END))) text = m[1].trim();
+      else { hint(modo && !ear.session ? 'Dormido. Oí: «' + text + '». Di “Radex” para despertarme.' : 'Oí: «' + text + '». Empieza diciendo “Radex”.'); return; }
+      if (!text && playing) { hint('Dime la orden completa, por ejemplo: «Radex, pausa».'); return; }
+      if (!text) { // solo dijo “Radex”
+        if (modo) { setSession(true); hint('Te escucho, dime.'); return; }
         const now = Date.now(); if (now - (onFinal.lastWake || 0) > 15000) hint('Te oí. Di la orden completa, por ejemplo: «Radex, pon música».');
         onFinal.lastWake = now; return;
       }
+      if (modo) setSession(true); // “Radex, …” abre la conversación
     }
   }
   send(text);
 }
 $('#mic').onclick = () => {
-  listening = !listening; updateMic();
+  listening = !listening; updateMic(); ear.session = false; // al apagar o encender la voz, vuelve a dormir
   if (listening) { ear.start(); startMeter(); } else { ear.stop(); stopMeter(); setState('idle', 'En espera'); }
 };
 
@@ -686,7 +713,7 @@ async function transcribe(wav) {
 }
 async function gemFinish(chunks, sr, voiced = 1) {
   const total = chunks.reduce((a, c) => a + c.length, 0);
-  if (total / sr < 0.5 || voiced < 0.3) { setState('listening', 'Escuchando'); return; } // muy corto o solo ruido
+  if (total / sr < 0.5 || voiced < 0.3) { setState('listening', listenLabel()); return; } // muy corto o solo ruido
   GEM.working = true; setState('thinking', 'Transcribiendo');
   let text = '';
   try {
@@ -696,7 +723,7 @@ async function gemFinish(chunks, sr, voiced = 1) {
   } catch (e) { addLine('error', e.message || 'No pude transcribir el audio.'); }
   GEM.working = false;
   if (text) onFinal(text);
-  if (!busy && !speaking) setState('listening', 'Escuchando');
+  if (!busy && !speaking) setState('listening', listenLabel());
 }
 { // motor de oído: el del navegador solo aparece si existe (en la app de escritorio no)
   const SRx = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1251,7 +1278,7 @@ async function send(text) {
     addLine('error', msg);
     await speak('Algo falló. Mira el mensaje en pantalla.');
   } finally {
-    busy = false; ear.awakeUntil = Date.now() + AWAKE_MS; afterTurn();
+    busy = false; afterTurn();
   }
 }
 
