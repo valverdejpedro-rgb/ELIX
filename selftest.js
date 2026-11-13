@@ -262,6 +262,8 @@ async function audioControlTests() {
   check('un identificador de dispositivo raro nunca llega a PowerShell', !r.ok && !r.pending, r.text);
 
   const srcCtl = fs.readFileSync(path.join(__dirname, 'native', 'audio-control.ps1'), 'utf8');
+  const srcLect = fs.readFileSync(path.join(__dirname, 'native', 'audio.ps1'), 'utf8');
+  check('ningún módulo declara clases COM con "new" (chocarían entre sí al cargarse los dos)', !/new\s+(MMDeviceEnumeratorCom|PolicyConfigClient)\s*\(/.test(srcLect + srcCtl) && !/class\s+(MMDeviceEnumeratorCom|PolicyConfigClient)/.test(srcLect + srcCtl));
   check('audio-control.ps1 no ejecuta programas ni descarga nada', !/Start-Process|Invoke-Expression|iex |Invoke-WebRequest|DownloadString|cmd\.exe|powershell\.exe/i.test(srcCtl));
 }
 
@@ -322,6 +324,8 @@ async function windowsAudioTests() {
     check(`segunda lectura rápida (${Date.now() - t1} ms)`, Date.now() - t1 < 2500);
     const m = JSON.parse((await br.request('audio.leer', { direccion: 'entrada' }, { module: 'audio' })).json);
     check('también lee los micrófonos', m.direccion === 'entrada' && Array.isArray(m.dispositivos));
+    const cc0 = await br.request('audio.app', { pids: [999999], nivel: 50, silencio: -1 }, { module: 'audio-control' });
+    check('el control funciona estando cargados los dos módulos a la vez (sin pid real no toca nada)', cc0.afectadas === 0, JSON.stringify(cc0));
     const t2 = Date.now();
     const cc = await br.request('audio.control_ok', {}, { module: 'audio-control', timeout: 30000 });
     check(`el módulo de control compila (${Date.now() - t2} ms)`, typeof cc.politica === 'string');

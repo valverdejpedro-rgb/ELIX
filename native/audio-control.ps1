@@ -16,9 +16,6 @@ using System.Runtime.InteropServices;
 
 namespace ElixCtl
 {
-    [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
-    public class MMDeviceEnumeratorCom { }
-
     [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     public interface IMMDeviceEnumerator
     {
@@ -81,9 +78,7 @@ namespace ElixCtl
     }
 
     // Interfaz no documentada de Windows (la usan SoundSwitch y similares) para elegir el dispositivo predeterminado.
-    [ComImport, Guid("870af99c-171d-4f9e-af0d-e63df40c2bc9")]
-    public class PolicyConfigClient { }
-
+    // Su clase COM (CLSID 870af99c-171d-4f9e-af0d-e63df40c2bc9) se crea con Crear(), no con "new".
     [ComImport, Guid("F8679F50-850A-41CF-9C72-430F290290C8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     public interface IPolicyConfig
     {
@@ -106,6 +101,9 @@ namespace ElixCtl
         const int E_RENDER = 0, E_CONSOLE = 0, STATE_ACTIVE = 1, CLSCTX_ALL = 23;
         static Guid IID_Sessions = new Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F");
 
+        // Se crea por CLSID (no con "new Clase()"): si dos módulos declaran la misma clase COM, Windows las confunde.
+        static object Crear(string clsid) { return Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid(clsid))); }
+
         // Cambia volumen y/o silencio de las sesiones (apps) con esos PID en el dispositivo predeterminado.
         // nivel: -1 = no tocar, 0-100. silencio: -1 = no tocar, 0 = quitar, 1 = silenciar. Devuelve cuántas sesiones tocó.
         public static int SetApp(int[] pids, int nivel, int silencio)
@@ -116,7 +114,7 @@ namespace ElixCtl
             if (nivel < 0 && silencio < 0) return 0;
             List<int> set = new List<int>(pids);
 
-            IMMDeviceEnumerator en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
+            IMMDeviceEnumerator en = (IMMDeviceEnumerator)Crear("BCDE0395-E52F-467C-8E3D-C4579291692E");
             IMMDevice dev;
             if (en.GetDefaultAudioEndpoint(E_RENDER, E_CONSOLE, out dev) != 0 || dev == null) throw new Exception("No hay dispositivo de salida predeterminado.");
             object o; Guid gs = IID_Sessions;
@@ -151,12 +149,12 @@ namespace ElixCtl
         public static void SetDefault(string id)
         {
             if (string.IsNullOrEmpty(id)) throw new Exception("Falta el dispositivo.");
-            IMMDeviceEnumerator en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
+            IMMDeviceEnumerator en = (IMMDeviceEnumerator)Crear("BCDE0395-E52F-467C-8E3D-C4579291692E");
             IMMDevice d;
             if (en.GetDevice(id, out d) != 0 || d == null) throw new Exception("Windows no encontró ese dispositivo.");
             int st; d.GetState(out st);
             if (st != STATE_ACTIVE) throw new Exception("Ese dispositivo no está activo.");
-            IPolicyConfig pc = (IPolicyConfig)new PolicyConfigClient();
+            IPolicyConfig pc = (IPolicyConfig)Crear("870af99c-171d-4f9e-af0d-e63df40c2bc9");
             for (int role = 0; role < 3; role++)
             {
                 int hr = pc.SetDefaultEndpoint(id, role);
@@ -167,7 +165,7 @@ namespace ElixCtl
         // No cambia nada: solo comprueba que Windows ofrece la interfaz para cambiar de dispositivo.
         public static string CheckPolicy()
         {
-            try { IPolicyConfig pc = (IPolicyConfig)new PolicyConfigClient(); return pc != null ? "ok" : "no disponible"; }
+            try { IPolicyConfig pc = (IPolicyConfig)Crear("870af99c-171d-4f9e-af0d-e63df40c2bc9"); return pc != null ? "ok" : "no disponible"; }
             catch (Exception e) { return e.Message; }
         }
     }

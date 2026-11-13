@@ -31,9 +31,6 @@ namespace ElixCore
         [FieldOffset(12)] public int relleno; // en 32 bits completa los 16 bytes de PROPVARIANT
     }
 
-    [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
-    public class MMDeviceEnumeratorCom { }
-
     [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     public interface IMMDeviceEnumerator
     {
@@ -147,6 +144,9 @@ namespace ElixCore
         static Guid IID_Meter = new Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064");
         static Guid IID_Sessions = new Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F");
 
+        // Se crea por CLSID (no con "new Clase()"): si dos módulos declaran la misma clase COM, Windows las confunde.
+        static object Crear(string clsid) { return Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid(clsid))); }
+
         [DllImport("ole32.dll")] static extern int PropVariantClear(ref PropVariant pv);
 
         static string Esc(string s)
@@ -213,7 +213,7 @@ namespace ElixCore
         public static string Snapshot(bool captura)
         {
             int flow = captura ? E_CAPTURE : E_RENDER;
-            IMMDeviceEnumerator en = (IMMDeviceEnumerator)new MMDeviceEnumeratorCom();
+            IMMDeviceEnumerator en = (IMMDeviceEnumerator)Crear("BCDE0395-E52F-467C-8E3D-C4579291692E");
             IMMDevice defDev = null;
             string defId = "";
             if (en.GetDefaultAudioEndpoint(flow, E_CONSOLE, out defDev) == 0 && defDev != null)
