@@ -43,3 +43,11 @@ manteniendo el mismo nombre. También se puede decir "pon el avatar de mujer" po
   Tiempo para responder: 5 s desde que Radex termina de preguntar (máximo 10 s desde la orden). Un "sí" o "no" tardío se entiende hasta 15 s después, sin decir "Radex".
 - Probar con el .exe instalado: decir "Radex, haz un diagnóstico de las herramientas" (incluye la lectura real del audio) y luego "Radex, ¿qué está sonando?".
 - Probar desde el código: `node selftest.js` (la parte [4] lee tu audio real).
+
+## Herramientas avanzadas, etapa 3 (v1.0.26)
+- `audio_volumen_app`: sube, baja, establece o silencia el volumen de UNA app ("baja Spotify", "silencia Chrome", "pon Discord al 30").
+  Si el nombre es ambiguo o la app no existe, no hace nada y lo dice. Verifica el resultado releyendo Windows.
+- `audio_cambiar_dispositivo`: cambia la salida de audio predeterminada ("pasa el sonido a los altavoces"). Pide confirmación por voz.
+  Usa una interfaz no documentada de Windows (IPolicyConfig); el diagnóstico dice si está disponible.
+- Código: `native/audio-control.ps1` (cambia el audio) separado de `native/audio.ps1` (solo lectura), y `tools/audio-control.js`.
+- El diagnóstico ahora da más detalle (dispositivos, volúmenes, apps con audio, si el cambio de dispositivo está disponible).

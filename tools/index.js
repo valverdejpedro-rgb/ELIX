@@ -9,6 +9,7 @@ const bridge = createBridge();
 
 require('./diagnostic')(registry, bridge);
 require('./audio')(registry, bridge); // etapa 2: audio de solo lectura
+require('./audio-control')(registry, bridge); // etapa 3: volumen por app y dispositivo de salida
 // Etapas siguientes (aún no incluidas):
 //   require('./apps')(registry, bridge);
 //   require('./browser-tools')(registry, bridge);

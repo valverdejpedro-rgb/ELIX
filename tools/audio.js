@@ -1,7 +1,13 @@
 'use strict';
 // Etapa 2: audio de SOLO LECTURA. Consulta a Windows (Core Audio, vía native/audio.ps1) qué dispositivos hay,
 // su volumen y silencio, y qué aplicaciones están sonando. No cambia nada en el PC.
-module.exports = function registerAudio(registry, bridge) {
+// Lee el estado del audio de Windows (también lo usa la etapa 3 para resolver y verificar)
+async function leerAudio(bridge, direccion) {
+  const r = await bridge.request('audio.leer', { direccion: direccion === 'entrada' ? 'entrada' : 'salida' }, { module: 'audio', timeout: 30000 });
+  try { return JSON.parse(r && r.json); } catch { throw new Error('Windows devolvió datos de audio que no pude entender.'); }
+}
+
+function registerAudio(registry, bridge) {
   const ESTADO = { 0: 'inactiva', 1: 'activa' };
   const SUENA = 2; // pico (0-100) a partir del cual se considera que algo está sonando
 
@@ -17,11 +23,9 @@ module.exports = function registerAudio(registry, bridge) {
     },
     async run(args) {
       const direccion = args.direccion === 'entrada' ? 'entrada' : 'salida';
-      let r;
-      try { r = await bridge.request('audio.leer', { direccion }, { module: 'audio', timeout: 30000 }); }
-      catch (e) { return { ok: false, mensaje: 'No pude leer el audio de Windows: ' + e.message }; }
       let d;
-      try { d = JSON.parse(r && r.json); } catch { return { ok: false, mensaje: 'Windows devolvió datos de audio que no pude entender.' }; }
+      try { d = await leerAudio(bridge, direccion); }
+      catch (e) { return { ok: false, mensaje: 'No pude leer el audio de Windows: ' + e.message }; }
       return { ok: true, verified: true, ...resumir(d) };
     },
   });
@@ -51,4 +55,7 @@ module.exports = function registerAudio(registry, bridge) {
     const detalle = JSON.stringify({ dispositivos: devs.map(({ nombre, volumen, silenciado, predeterminado, pico }) => ({ nombre, volumen, silenciado, predeterminado, pico })), apps: apps.map(({ nombre, volumen, silenciada, pico }) => ({ nombre, volumen, silenciada, pico })) });
     return { mensaje: partes.join('. ') + '.', detalle: 'Datos: ' + detalle.slice(0, 1500) };
   }
-};
+}
+
+module.exports = registerAudio;
+module.exports.leerAudio = leerAudio;

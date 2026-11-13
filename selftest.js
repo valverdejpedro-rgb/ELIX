@@ -155,8 +155,118 @@ async function audioLogicTests() {
   check('audio.ps1 no llama a ningún método que cambie el audio', !/\.(SetMute|SetMasterVolume\w*|SetChannelVolume\w*|SetDefaultEndpoint)\(/.test(src));
 }
 
+async function audioControlTests() {
+  console.log('\n[3] Etapa 3: volumen por app y dispositivo (puente simulado)');
+  const ID1 = '{0.0.0.00000000}.{aaaaaaaa-0000-0000-0000-000000000001}';
+  const ID2 = '{0.0.0.00000000}.{bbbbbbbb-0000-0000-0000-000000000002}';
+  const ID3 = '{0.0.0.00000000}.{cccccccc-0000-0000-0000-000000000003}';
+  const st = {
+    devs: [
+      { id: ID1, nombre: 'Altavoces (Realtek)', volumen: 40, silenciado: false, predeterminado: false, pico: 0 },
+      { id: ID2, nombre: 'Auriculares (Realtek)', volumen: 60, silenciado: false, predeterminado: true, pico: 5 },
+      { id: ID3, nombre: 'Monitor HDMI (NVIDIA)', volumen: 100, silenciado: false, predeterminado: false, pico: 0 },
+    ],
+    apps: [
+      { nombre: 'Spotify', proceso: 'Spotify', pid: 10, volumen: 70, silenciada: false, estado: 1, pico: 30 },
+      { nombre: 'chrome', proceso: 'chrome', pid: 11, volumen: 100, silenciada: false, estado: 1, pico: 10 },
+      { nombre: 'chrome', proceso: 'chrome', pid: 12, volumen: 100, silenciada: false, estado: 0, pico: 0 },
+      { nombre: 'msedge', proceso: 'msedge', pid: 13, volumen: 50, silenciada: false, estado: 0, pico: 0 },
+      { nombre: 'Sonidos del sistema', proceso: '', pid: 0, volumen: 100, silenciada: false, estado: 0, pico: 0 },
+    ],
+  };
+  const calls = [];
+  let rechazar = false;
+  const bridge = {
+    request: async (cmd, args) => {
+      calls.push({ cmd, args });
+      if (cmd === 'audio.leer') return { json: JSON.stringify({ direccion: 'salida', dispositivos: st.devs, apps: st.apps }) };
+      if (cmd === 'audio.app') {
+        if (rechazar) return { afectadas: 0 };
+        let n = 0;
+        for (const a of st.apps) if (args.pids.includes(a.pid)) {
+          if (args.nivel >= 0) a.volumen = args.nivel;
+          if (args.silencio >= 0) a.silenciada = args.silencio === 1;
+          n++;
+        }
+        return { afectadas: n };
+      }
+      if (cmd === 'audio.dispositivo') {
+        if (rechazar) throw new Error('Windows rechazó el cambio');
+        for (const d of st.devs) d.predeterminado = d.id === args.id;
+        return { ok: true };
+      }
+      throw new Error('comando inesperado ' + cmd);
+    },
+  };
+  const reg = createRegistry({ ttlMs: 400 });
+  require('./tools/audio-control')(reg, bridge);
+  const cambios = () => calls.filter((c) => c.cmd === 'audio.app' || c.cmd === 'audio.dispositivo').length;
+
+  let r = await reg.invoke('audio_volumen_app', { app: 'spotify', accion: 'bajar' });
+  check('baja Spotify 10 puntos y lo verifica', r.ok && r.verified && st.apps[0].volumen === 60 && /70% → 60%/.test(r.mensaje), r.text);
+  r = await reg.invoke('audio_volumen_app', { app: 'Spotify', accion: 'establecer', porcentaje: 25 });
+  check('establece Spotify al 25 %', r.ok && r.verified && st.apps[0].volumen === 25, r.text);
+  r = await reg.invoke('audio_volumen_app', { app: 'spotify', accion: 'subir', paso: 90 });
+  check('subir nunca pasa de 100', st.apps[0].volumen === 100, String(st.apps[0].volumen));
+  r = await reg.invoke('audio_volumen_app', { app: 'google chrome', accion: 'establecer', porcentaje: 30 });
+  check('"google chrome" llega a chrome y cambia todas sus sesiones', r.verified && st.apps[1].volumen === 30 && st.apps[2].volumen === 30, r.text);
+  r = await reg.invoke('audio_volumen_app', { app: 'spotify', accion: 'silenciar' });
+  check('silencia una app y lo verifica', r.verified && st.apps[0].silenciada === true && /silenciada/.test(r.mensaje), r.text);
+  r = await reg.invoke('audio_volumen_app', { app: 'spotify', accion: 'activar_sonido' });
+  check('le quita el silencio', r.verified && st.apps[0].silenciada === false, r.text);
+  r = await reg.invoke('audio_volumen_app', { app: 'sistema', accion: 'establecer', porcentaje: 50 });
+  check('los sonidos del sistema se alcanzan por su PID 0', r.verified && st.apps[4].volumen === 50, r.text);
+  const c0 = cambios();
+  r = await reg.invoke('audio_volumen_app', { app: 'e', accion: 'bajar' });
+  check('nombre ambiguo (chrome y msedge) → AMBIGUO y no cambia nada', r.clarify && /AMBIGUO/.test(r.text) && cambios() === c0, r.text);
+  r = await reg.invoke('audio_volumen_app', { app: 'photoshop', accion: 'bajar' });
+  check('app que no existe → FALLÓ y lista las que sí hay', !r.ok && /Spotify/.test(r.text) && cambios() === c0, r.text);
+  r = await reg.invoke('audio_volumen_app', { app: 'spotify', accion: 'establecer' });
+  check('establecer sin porcentaje → FALLÓ', !r.ok && cambios() === c0, r.text);
+  r = await reg.invoke('audio_volumen_app', { app: 'spotify', accion: 'establecer', porcentaje: 150 });
+  check('porcentaje fuera de 0-100 → rechazado', !r.ok && cambios() === c0);
+  r = await reg.invoke('audio_volumen_app', { app: 'spotify', accion: 'explotar' });
+  check('acción no permitida → rechazada', !r.ok && cambios() === c0);
+  rechazar = true;
+  r = await reg.invoke('audio_volumen_app', { app: 'spotify', accion: 'bajar' });
+  check('si Windows no toca ninguna sesión → FALLÓ', !r.ok, r.text);
+  rechazar = false;
+
+  // Cambio de dispositivo (con confirmación)
+  const c1 = cambios();
+  r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'altavoces' });
+  check('cambiar de dispositivo queda PENDIENTE y no cambia nada', !!r.pending && /Altavoces/.test(r.text) && /Auriculares/.test(r.text) && cambios() === c1, r.text);
+  r = await reg.confirm(false);
+  check('si dice que no, no cambia', r.cancelled && cambios() === c1 && st.devs[1].predeterminado);
+  await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'parlantes' });
+  r = await reg.confirm(true);
+  check('al confirmar cambia y verifica (alias "parlantes")', r.ok && r.verified && st.devs[0].predeterminado && !st.devs[1].predeterminado && /Altavoces/.test(r.mensaje), r.text);
+  r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'altavoces' });
+  check('si ya es el predeterminado → FALLÓ y no pide confirmar', !r.ok && !r.pending && /ya es/.test(r.text), r.text);
+  r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'realtek' });
+  check('nombre ambiguo → AMBIGUO y no deja nada pendiente', r.clarify && !reg.hasPending(), r.text);
+  r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'bluetooth' });
+  check('dispositivo inexistente → FALLÓ con la lista', !r.ok && /Altavoces/.test(r.text), r.text);
+  await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'hdmi' });
+  await sleep(550);
+  const c2 = cambios();
+  r = await reg.confirm(true);
+  check('confirmación vencida → no cambia de dispositivo', r.expired && cambios() === c2 && st.devs[0].predeterminado);
+  await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'hdmi' });
+  rechazar = true;
+  r = await reg.confirm(true);
+  check('si Windows rechaza el cambio → FALLÓ y dice que no se cambió nada', !r.ok && /No se cambió nada/.test(r.text), r.text);
+  rechazar = false;
+  st.devs[2].id = 'x; calc.exe';
+  r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'hdmi' });
+  check('un identificador de dispositivo raro nunca llega a PowerShell', !r.ok && !r.pending, r.text);
+
+  const srcCtl = fs.readFileSync(path.join(__dirname, 'native', 'audio-control.ps1'), 'utf8');
+  check('audio-control.ps1 no ejecuta programas ni descarga nada', !/Start-Process|Invoke-Expression|iex |Invoke-WebRequest|DownloadString|cmd\.exe|powershell\.exe/i.test(srcCtl));
+}
+
 async function powershellTests() {
-  console.log('\n[3] Puente PowerShell (worker persistente)');
+  console.log('\n[4] Puente PowerShell (worker persistente)');
   const exe = process.env.ELIX_SELFTEST_PS || undefined; // solo para pruebas en otros sistemas
   if (!exe && process.platform !== 'win32') { console.log('  (omitido: esto solo se prueba en Windows)'); return; }
   const br = createBridge({ exe });
@@ -195,7 +305,7 @@ async function powershellTests() {
 }
 
 async function windowsAudioTests() {
-  console.log('\n[4] Audio real de Windows (solo lectura)');
+  console.log('\n[5] Audio real de Windows (lectura; el control solo se compila, no cambia nada)');
   if (process.platform !== 'win32') { console.log('  (omitido: esto solo se prueba en Windows)'); return; }
   const br = createBridge();
   try {
@@ -212,6 +322,12 @@ async function windowsAudioTests() {
     check(`segunda lectura rápida (${Date.now() - t1} ms)`, Date.now() - t1 < 2500);
     const m = JSON.parse((await br.request('audio.leer', { direccion: 'entrada' }, { module: 'audio' })).json);
     check('también lee los micrófonos', m.direccion === 'entrada' && Array.isArray(m.dispositivos));
+    const t2 = Date.now();
+    const cc = await br.request('audio.control_ok', {}, { module: 'audio-control', timeout: 30000 });
+    check(`el módulo de control compila (${Date.now() - t2} ms)`, typeof cc.politica === 'string');
+    check('Windows ofrece el cambio de dispositivo', cc.politica === 'ok', cc.politica);
+    const nada = await br.request('audio.app', { pids: [], nivel: -1, silencio: -1 }, { module: 'audio-control' });
+    check('audio.app sin sesiones no toca nada', nada.afectadas === 0);
     console.log(`     ${m.dispositivos.length} micrófono(s)`);
   } catch (x) {
     check('el audio de Windows funciona', false, x.message);
@@ -219,9 +335,10 @@ async function windowsAudioTests() {
 }
 
 (async () => {
-  console.log('Radex — autodiagnóstico de herramientas (etapas 1 y 2)');
+  console.log('Radex — autodiagnóstico de herramientas (etapas 1, 2 y 3)');
   await logicTests();
   await audioLogicTests();
+  await audioControlTests();
   await powershellTests();
   await windowsAudioTests();
   console.log(`\nResultado: ${okN} correctas, ${failN} con problema.`);
