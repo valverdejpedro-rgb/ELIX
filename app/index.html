@@ -421,6 +421,7 @@ function setSession(v) { ear.session = !!v; refreshListenState(); }
 async function dormir(text) {
   setSession(false);
   if (pendingConfirm) { pendingConfirm = null; try { window.elixTools.confirm(false); } catch {} }
+  pendingLearn = null;
   addLine('user', text);
   const r = 'Vale, me desactivo. Dime «Radex» cuando me necesites.';
   addLine('jarvis', r);
@@ -467,6 +468,10 @@ function onFinal(text) {
     send(text); return;
   }
   if (pendingConfirm && Date.now() < pendingConfirm.exp + CONFIRM_GRACE_MS) { // esperando un sí/no (o recién vencido): se acepta sin decir “Radex”
+    const mm = text.match(WAKE_START), t2 = mm && mm[1].trim() ? mm[1].trim() : text;
+    if (classifyYesNo(t2)) { send(t2); return; }
+  }
+  if (pendingLearn && Date.now() < pendingLearn.exp) { // esperando «¿aprendo esta orden?»: sí/no sin decir “Radex”
     const mm = text.match(WAKE_START), t2 = mm && mm[1].trim() ? mm[1].trim() : text;
     if (classifyYesNo(t2)) { send(t2); return; }
   }
@@ -678,7 +683,7 @@ function b64(u8) { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += 
 const HALLU = /^(?:gracias(?: por (?:ver|mirar|escuchar)[^.]*)?|subt[ií]tulos?[^.]*|suscr[ií]bete[^.]*|amara\.org[^.]*|m[uú]sica|hasta (?:luego|pronto)|chao|adi[oó]s|nos vemos|y eso es todo|a+h+|e+h+|m{2,}|aj[aá]|[.,…\s-]+)\.?$/i;
 
 // Groq Whisper: rápido (~0,3 s) y gratis. Se le pasa el idioma y la palabra “Radex” para que la reconozca mejor.
-async function transcribeGroq(wav) {
+async function transcribeGroq(wav, lenient = false) {
   const key = keyOf('groq');
   if (!key) throw { message: 'Falta la clave de Groq para escuchar con Groq Whisper (gratis en console.groq.com/keys).' };
   let r;
@@ -700,7 +705,7 @@ async function transcribeGroq(wav) {
       : r.status === 429 ? 'Groq llegó al límite gratuito de transcripción por ahora.' : `Error ${r.status} de Groq al transcribir. ${det}`.trim() };
   }
   const segs = r.data.segments || [];
-  if (segs.length && segs.every((s) => s.no_speech_prob > 0.45 || s.avg_logprob < -0.9 || s.compression_ratio > 2.2)) return ''; // solo ruido, música o texto inventado
+  if (!lenient && segs.length && segs.every((s) => s.no_speech_prob > 0.45 || s.avg_logprob < -0.9 || s.compression_ratio > 2.2)) return ''; // solo ruido, música o texto inventado
   const t = (r.data.text || '').trim();
   if (/^r[aeá]d[eé]\w{0,2}\W*$/i.test(t) && segs.some((s) => s.no_speech_prob > 0.2 || s.avg_logprob < -0.5)) return ''; // “Radex.” suelto y dudoso = eco del prompt
   return t.length > 1 && !HALLU.test(t) ? t : '';
@@ -728,26 +733,27 @@ async function transcribeGemini(wav) {
   const t = (d.choices?.[0]?.message?.content || '').replace(/^["“”]+|["“”]+$/g, '').trim();
   return t.length > 1 ? t : '';
 }
-async function transcribe(wav) {
+async function transcribe(wav, lenient = false) {
   const m = $('#earsel').value;
   const engines = m === 'groq' ? ['groq'] : m === 'gemini' ? ['gemini'] : [keyOf('groq') && 'groq', keyOf('gemini') && 'gemini'].filter(Boolean);
   if (!engines.length) throw { message: 'Para escuchar necesito una clave gratuita de Groq (console.groq.com/keys) o de Gemini. Pégala en el panel de API (doble clic en RADEX).' };
   const errs = [];
   for (const e of engines) {
-    try { return e === 'groq' ? await transcribeGroq(wav) : await transcribeGemini(wav); }
+    try { return e === 'groq' ? await transcribeGroq(wav, lenient) : await transcribeGemini(wav); }
     catch (err) { errs.push(err.message || 'Error al transcribir.'); if (!err.retry) break; }
   }
   throw { message: errs.join(' · ') };
 }
 async function gemFinish(chunks, sr, voiced = 1) {
   const total = chunks.reduce((a, c) => a + c.length, 0);
-  if (total / sr < 0.5 || voiced < 0.3) { setState('listening', listenLabel()); return; } // muy corto o solo ruido
+  const sn = esperandoSN(); // esperando un sí/no: una palabra corta es válida
+  if (total / sr < (sn ? 0.25 : 0.5) || voiced < (sn ? 0.12 : 0.3)) { setState('listening', listenLabel()); return; } // muy corto o solo ruido
   GEM.working = true; setState('thinking', 'Transcribiendo');
   let text = '';
   try {
     const all = new Float32Array(total); let o = 0;
     for (const c of chunks) { all.set(c, o); o += c.length; }
-    text = await transcribe(toWav(downsample(all, sr), 16000));
+    text = await transcribe(toWav(downsample(all, sr), 16000), sn);
   } catch (e) { addLine('error', e.message || 'No pude transcribir el audio.'); }
   GEM.working = false;
   if (text) onFinal(text);
@@ -1032,7 +1038,10 @@ if (window.elixBrowser) { const l = $('#ydest') && $('#ydest').closest('label');
 // ---- Herramientas verificadas (registro del proceso principal: audio, aplicaciones, navegador avanzado…) ----
 let REG_TOOLS = [];
 let pendingConfirm = null; // acción de riesgo esperando el sí/no del usuario (se responde por voz)
-const CONFIRM_ANSWER_MS = 5000; // tiempo para responder, contado desde que Radex termina de hacer la pregunta
+const CONFIRM_ANSWER_MS = 8000; // tiempo para responder, contado desde que Radex termina de hacer la pregunta (antes 5 s)
+const LEARN_ANSWER_MS = 10000; // tiempo para responder «¿aprendo esta orden?»
+let pendingLearn = null; // orden nueva que funcionó y espera tu sí/no para aprenderla
+let lastPendingCand = null, confirmVerified = false;
 const CONFIRM_GRACE_MS = 15000; // tras vencer, un “sí” tardío aún se entiende (para avisar que venció, nunca para ejecutar)
 let lastExpired = '';
 const REGLAS_VERIF = 'HERRAMIENTAS VERIFICADAS: sus resultados empiezan con VERIFICADO, HECHO PERO SIN VERIFICAR, FALLÓ, AMBIGUO o PENDIENTE DE CONFIRMACIÓN. Solo digas que algo quedó hecho si el resultado empieza con VERIFICADO; si dice HECHO PERO SIN VERIFICAR, dilo tal cual y no afirmes que quedó confirmado; si dice FALLÓ, explica el motivo en una frase. Si dice AMBIGUO, no ejecutes nada y pregúntale al usuario cuál de las opciones quiere. Si dice PENDIENTE DE CONFIRMACIÓN, hazle al usuario esa pregunta en una frase y espera: el sistema procesa su sí o no; no repitas la herramienta ni la confirmes tú.';
@@ -1041,7 +1050,7 @@ if (window.elixTools) window.elixTools.catalog().then((list) => {
     name: d.name, description: d.description, inputSchema: d.inputSchema,
     execute: async (input) => {
       const r = await window.elixTools.run(d.name, input || {});
-      if (r && r.pending) { const hard = Date.now() + r.pending.ttl; pendingConfirm = { resumen: r.pending.resumen, exp: hard, hard }; }
+      if (r && r.pending) { const hard = Date.now() + r.pending.ttl; pendingConfirm = { resumen: r.pending.resumen, exp: hard, hard, ask: true }; }
       return (r && r.text) || 'Sin respuesta del sistema.';
     },
   }));
@@ -1061,9 +1070,10 @@ function classifyYesNo(t) {
   return null;
 }
 // Si hay una acción esperando confirmación: consume lo pendiente y dice si el usuario respondió sí o no (o null si dijo otra cosa)
+function esperandoSN() { return !!((pendingConfirm && Date.now() < pendingConfirm.exp + CONFIRM_GRACE_MS) || (pendingLearn && Date.now() < pendingLearn.exp)); }
 function takePendingConfirm(text) {
   if (!pendingConfirm) return null;
-  const p = pendingConfirm; pendingConfirm = null;
+  const p = pendingConfirm; pendingConfirm = null; lastPendingCand = p.cand || null;
   const now = Date.now();
   const k = now > p.exp + CONFIRM_GRACE_MS ? null : classifyYesNo(text);
   if (now > p.exp) { // venció: NUNCA se ejecuta; se cancela en el sistema y, si dijo sí, se le avisa
@@ -1083,6 +1093,7 @@ async function resolveConfirm(yes) {
   if (r.none) return yes ? 'No tengo nada pendiente de confirmar.' : 'Vale, no hice nada.'; // p. ej. un “no” tardío: ya estaba cancelado
   if (r.cancelled) return 'Vale, lo cancelé. No hice nada.';
   if (!r.ok) return 'No pude hacerlo. ' + r.mensaje;
+  confirmVerified = !!r.verified;
   return r.verified ? r.mensaje : r.mensaje + ' Ojo: no pude comprobar que haya quedado así.';
 }
 
@@ -1255,13 +1266,14 @@ async function askLLM(msgs, tools) {
   const base = msgs.map((m) => ({ role: m.role, content: m.content }));
   for (let i = base.length - 1; i >= 0; i--) if (base[i].role === 'user') { base[i].content = `[${stamp}] ${base[i].content}`; break; }
   const messages = [{ role: 'system', content: instrucciones() }, ...base];
+  const calls = []; // herramientas usadas en este turno (para poder aprender la orden)
   for (let i = 0; i < 6; i++) {
     const d = await post(messages);
     const m = d.choices?.[0]?.message;
     if (!m) throw { message: 'El proveedor no devolvió respuesta.' };
     const { reasoning, reasoning_content, ...am } = m; // el razonamiento interno no se reenvía
     messages.push(am);
-    if (!m.tool_calls || !m.tool_calls.length) return { text: (m.content || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim() };
+    if (!m.tool_calls || !m.tool_calls.length) return { text: (m.content || '').replace(/<think>[\s\S]*?<\/think>/gi, '').trim(), calls };
     for (const call of m.tool_calls) {
       const t = tools.find((x) => x.name === call.function.name);
       let input = {};
@@ -1269,9 +1281,72 @@ async function askLLM(msgs, tools) {
       let out;
       try { out = t ? await t.execute(input) : 'Herramienta desconocida'; } catch (e) { out = 'Error: ' + (e.message || e); }
       messages.push({ role: 'tool', tool_call_id: call.id, name: call.function.name, content: typeof out === 'string' ? out : JSON.stringify(out) });
+      calls.push({ name: call.function.name, input, out: String(out) });
     }
+    // Una acción espera confirmación: se pregunta directo (sin otra llamada al cerebro: más rápido, sin gastar tokens y sin que se venza)
+    if (pendingConfirm && pendingConfirm.ask) { pendingConfirm.ask = false; return { text: preguntaConfirmacion(pendingConfirm.resumen), calls, asked: true }; }
   }
-  return { text: 'Me enredé con tantos pasos. ¿Lo intentamos de nuevo?' };
+  return { text: 'Me enredé con tantos pasos. ¿Lo intentamos de nuevo?', calls };
+}
+
+/* ---------- Atajos aprendidos: las órdenes que ya funcionaron se ejecutan sin llamar al cerebro (0 tokens) ---------- */
+const ATAJOS = { items: [], on: !!window.elixAtajos };
+if (window.elixAtajos) window.elixAtajos.load().then((l) => { ATAJOS.items = Array.isArray(l) ? l : []; }).catch(() => {});
+const guardarAtajos = () => { try { window.elixAtajos && window.elixAtajos.save(ATAJOS.items); } catch {} };
+// Solo acciones con resultado comprobable; nunca memoria, diagnóstico, bloqueo del PC ni información libre
+const LEARNABLE = new Set(['audio_volumen_app', 'audio_cambiar_dispositivo', 'ajustar_volumen', 'control_multimedia', 'abrir_aplicacion', 'abrir_carpeta', 'controlar_ventana']);
+const FILL_ATAJO = new Set(['radex', 'oye', 'hey', 'ok', 'por', 'favor', 'porfa', 'puedes', 'podrias', 'quiero', 'que', 'me', 'lo', 'la', 'el', 'un', 'una', 'ahora', 'ya', 'pues', 'eh', 'gracias', 'si']);
+const SECRETO_ATAJO = /(contrase|password|token|clave|gsk_|AIza|\d{9,})/i;
+const FALLO_NATIVO = /^(No pude|No encontr|No permitido|Esta acción|Acción de PC|Error|Herramienta desconocida|Falta|Necesito)/i;
+const PREGUNTA_APRENDER = '¿Quieres que aprenda esta orden para hacerla al instante la próxima vez?';
+const claveAtajo = (t) => wordsOf(t).filter((w) => !FILL_ATAJO.has(w)).join(' ');
+function similares(a, b) { // casi idéntica: mismas cifras y al menos 90 % de palabras en común
+  if (a === b) return true;
+  const A = a.split(' '), B = b.split(' '), cifras = (w) => w.filter((x) => /\d/.test(x)).sort().join(',');
+  if (cifras(A) !== cifras(B)) return false;
+  const sa = new Set(A), sb = new Set(B); let n = 0; sa.forEach((x) => { if (sb.has(x)) n++; });
+  return n / Math.max(sa.size, sb.size) >= 0.9;
+}
+function buscarAtajo(text) { const k = claveAtajo(text); return k ? (ATAJOS.items.find((x) => similares(k, x.f)) || null) : null; }
+const preguntaConfirmacion = (resumen) => String(resumen || 'Voy a hacerlo').replace(/[.\s]+$/, '') + '. ¿Lo confirmas?';
+function resultadoAccion(name, out) { // 'ok' (hecho y comprobado), 'pend' (espera tu confirmación) o null (falló / no comprobado)
+  out = String(out || '').trim();
+  if (/^PENDIENTE DE CONFIRMACI/i.test(out)) return 'pend';
+  if (/^VERIFICADO:/.test(out)) return 'ok';
+  if (REG_TOOLS.some((t) => t.name === name)) return null; // las verificadas solo valen con VERIFICADO
+  return out && !FALLO_NATIVO.test(out) && !/Solo disponible en la versión de escritorio/.test(out) ? 'ok' : null;
+}
+function candidatoAtajo(text, calls) { // una orden NUEVA que funcionó con una sola herramienta: se ofrece aprenderla
+  if (!ATAJOS.on || !calls || calls.length !== 1) return null;
+  const c = calls[0]; if (!LEARNABLE.has(c.name)) return null;
+  const r = resultadoAccion(c.name, c.out); if (!r) return null;
+  const k = claveAtajo(text), nw = k ? k.split(' ').length : 0;
+  if (nw < 1 || nw > 12 || String(text).length > 140 || SECRETO_ATAJO.test(text)) return null;
+  if (buscarAtajo(text) || ATAJOS.items.length >= 300) return null; // ya aprendida (o ya dijiste que no)
+  return { f: k, t: c.name, a: c.input || {}, r };
+}
+async function ejecutarAtajo(hit) { // devuelve lo que hay que decir, o null para que lo resuelva el cerebro
+  const t = [...ALL_TOOLS, ...REG_TOOLS].find((x) => x.name === hit.t);
+  if (!t || !LEARNABLE.has(hit.t)) return null;
+  setState('acting', 'Ejecutando');
+  let out; try { out = await t.execute(hit.a || {}); } catch (e) { out = 'Error: ' + (e.message || e); }
+  out = String(out || '');
+  addEl('chip', 'atajo ' + hit.t + ' ' + JSON.stringify(hit.a || {}) + ': ' + out.slice(0, 300));
+  const r = resultadoAccion(hit.t, out);
+  if (r === 'pend') { const rs = pendingConfirm && pendingConfirm.resumen; if (pendingConfirm) pendingConfirm.ask = false; hit.n = (hit.n | 0) + 1; guardarAtajos(); return preguntaConfirmacion(rs); }
+  if (r === 'ok') { hit.n = (hit.n | 0) + 1; hit.x = 0; guardarAtajos(); return out.replace(/^VERIFICADO:\s*/, '').split('\n')[0].trim().slice(0, 300) || 'Listo.'; }
+  hit.x = (hit.x | 0) + 1; // falló: el cerebro lo resuelve; si falla 2 veces seguidas, se olvida el atajo
+  if (hit.x >= 2) { ATAJOS.items = ATAJOS.items.filter((i) => i !== hit); guardarAtajos(); }
+  return null;
+}
+async function decir(reply) { // dice la respuesta y deja listas las ventanas de sí/no
+  history = trim([...history, { role: 'assistant', content: reply }]);
+  addLine('jarvis', reply);
+  await speak(reply);
+  ECHO.text = reply; ECHO.t = Date.now();
+  // Si la respuesta era la pregunta de una confirmación: tiene 8 s desde que termina de hablar (nunca más del tope desde la orden)
+  if (pendingConfirm && pendingConfirm.hard) pendingConfirm.exp = Math.min(pendingConfirm.hard, Date.now() + CONFIRM_ANSWER_MS);
+  if (pendingLearn && pendingLearn.exp === Infinity) pendingLearn.exp = Date.now() + LEARN_ANSWER_MS;
 }
 
 async function send(text) {
@@ -1284,14 +1359,32 @@ async function send(text) {
   try {
     const yn = takePendingConfirm(text); // ¿está respondiendo a una confirmación pendiente?
     if (yn) {
-      const reply = yn === 'expired'
+      confirmVerified = false;
+      let reply = yn === 'expired'
         ? (addEl('chip', 'confirmación vencida: no se hizo nada' + (lastExpired ? ' (' + lastExpired.slice(0, 200) + ')' : '')),
            'Esa confirmación ya venció, así que no hice nada' + (lastExpired ? ' (' + lastExpired.replace(/[.\s]+$/, '') + ')' : '') + '. Si todavía lo quieres, pídemelo otra vez.')
         : await resolveConfirm(yn === 'yes');
-      history = trim([...history, { role: 'assistant', content: reply }]);
-      addLine('jarvis', reply);
-      await speak(reply);
+      // La orden era nueva, se confirmó y quedó verificada: se ofrece aprenderla
+      if (yn === 'yes' && confirmVerified && lastPendingCand && ATAJOS.on) { const { f, t, a } = lastPendingCand; reply += ' ' + PREGUNTA_APRENDER; pendingLearn = { cand: { f, t, a }, exp: Infinity }; }
+      confirmVerified = false; lastPendingCand = null;
+      await decir(reply);
       return;
+    }
+    if (pendingLearn) { // ¿respondió a «¿aprendo esta orden?»
+      const p = pendingLearn; pendingLearn = null;
+      const k = classifyYesNo(text);
+      if (k && Date.now() > p.exp) { history = history.slice(0, Math.max(0, turnStart - 1)); addEl('chip', 'ignoré un «sí/no» tardío'); return; }
+      if (k) {
+        ATAJOS.items.push({ ...p.cand, n: 0, c: Math.floor(Date.now() / 1000), ...(k === 'no' ? { r: 1 } : {}) });
+        guardarAtajos();
+        await decir(k === 'yes' ? 'Hecho, la aprendí. La próxima vez la hago al instante.' : 'Vale, no la guardo y no te lo vuelvo a preguntar.');
+        return;
+      }
+    }
+    const hit = ATAJOS.on ? buscarAtajo(text) : null; // ¿ya la aprendí? se ejecuta sin gastar tokens
+    if (hit && !hit.r) {
+      const msg = await ejecutarAtajo(hit);
+      if (msg) { await decir(msg); return; }
     }
     const c = cfg();
     if (c.prov !== 'custom' && !c.key) throw { message: `Falta la clave gratuita de ${PRESETS[c.prov].name}. ${PRESETS[c.prov].help} Pégala en el campo “Clave” (doble clic en RADEX para mostrar la configuración de API).` };
@@ -1309,14 +1402,13 @@ async function send(text) {
       },
     }));
     const res = await askLLM(msgs, tools);
-    const reply = (res.text || '').trim() || 'Listo.';
+    let reply = (res.text || '').trim() || 'Listo.';
     if (esSilencio(reply, text)) { history = history.slice(0, Math.max(0, turnStart - 1)); addEl('chip', 'ignoré (no era para mí): «' + text.slice(0, 80) + '»'); return; }
-    history = trim([...history, { role: 'assistant', content: reply }]);
-    addLine('jarvis', reply);
-    await speak(reply);
-    ECHO.text = reply; ECHO.t = Date.now();
-    // Si la respuesta era la pregunta de una confirmación: tiene 5 s desde que termina de hablar (nunca más de 10 s desde la orden)
-    if (pendingConfirm && pendingConfirm.hard) pendingConfirm.exp = Math.min(pendingConfirm.hard, Date.now() + CONFIRM_ANSWER_MS);
+    // Orden nueva que funcionó con una sola herramienta: se ofrece aprenderla (si pide confirmación, se ofrece cuando ya se confirmó y quedó verificada)
+    const cand = candidatoAtajo(text, res.calls);
+    if (cand && cand.r === 'pend') { if (pendingConfirm) pendingConfirm.cand = { f: cand.f, t: cand.t, a: cand.a }; }
+    else if (cand) { reply += ' ' + PREGUNTA_APRENDER; pendingLearn = { cand: { f: cand.f, t: cand.t, a: cand.a }, exp: Infinity }; }
+    await decir(reply);
   } catch (e) {
     history = history.slice(0, Math.max(0, turnStart - 1));
     const msg = e?.code === 'not_granted' ? 'Necesito tu permiso para usar a Claude como cerebro. Vuelve a intentarlo y acepta.'
