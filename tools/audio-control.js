@@ -8,6 +8,23 @@ const { leerAudio } = require('./audio');
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 const ALIAS_APP = { 'google chrome': 'chrome', 'microsoft edge': 'msedge', edge: 'msedge', sistema: 'sonidos del sistema', sonidos: 'sonidos del sistema' };
 const ALIAS_DEV = { parlantes: 'altavoces', bocinas: 'altavoces', speakers: 'altavoces', audifonos: 'auriculares', headphones: 'auriculares', cascos: 'auriculares' };
+// Tres destinos habituales, reconocidos por lo que el usuario pide y por cómo Windows nombra el dispositivo:
+//  - inalambrico: audífonos inalámbricos, Bluetooth o Corsair; - cable: auriculares/audífonos con cable (jack);
+//  - laptop: los parlantes/altavoces de la laptop. Se revisan en ese orden (“audífonos inalámbricos” gana a “audífonos”).
+const CATEGORIAS = [
+  { id: 'inalambrico', pide: /inalambric|wireless|bluetooth|corsair|airpods|buds|\bbt\b/, incluye: /corsair|wireless|bluetooth|hands.?free|airpods|buds|inalambric|\bbt\b/, excluye: null, nombre: 'los audífonos inalámbricos' },
+  { id: 'cable', pide: /auricular|audifono|casco|headphone|headset/, incluye: /auricular|headphone|audifono|headset/, excluye: /corsair|wireless|bluetooth|hands.?free|airpods|buds|inalambric|\bbt\b/, nombre: 'los auriculares con cable' },
+  { id: 'laptop', pide: /laptop|portatil|computadora|compu|\bpc\b|altavoz|altavoces|parlante|bocina|speaker/, incluye: /altavo(?:z|ces)|speaker|parlante|bocina/, excluye: /corsair|wireless|bluetooth|hands.?free|hdmi|nvidia|displayport|monitor|digital|spdif|usb|airpods|buds/, nombre: 'los parlantes de la laptop' },
+];
+const SECUNDARIOS = /chat|comunicaci|voz|voice|mic|llamada/; // endpoints de “chat” de un mismo dispositivo: se prefieren los demás
+function porCategoria(devs, texto) {
+  const q = norm(texto);
+  const cat = CATEGORIAS.find((c) => c.pide.test(q));
+  if (!cat) return null;
+  let m = devs.filter((x) => { const n = norm(x.nombre); return cat.incluye.test(n) && !(cat.excluye && cat.excluye.test(n)); });
+  if (m.length > 1) { const p = m.filter((x) => !SECUNDARIOS.test(norm(x.nombre))); if (p.length) m = p; }
+  return { cat, match: m };
+}
 const ID_RE = /^\{[0-9a-f.]+\}\.\{[0-9a-f-]+\}$/i; // forma de los identificadores de dispositivo de Windows
 
 module.exports = function registerAudioControl(registry, bridge) {
@@ -84,9 +101,9 @@ module.exports = function registerAudioControl(registry, bridge) {
   registry.register({
     name: 'audio_cambiar_dispositivo',
     risk: 'confirm',
-    description: 'Cambia el dispositivo de SALIDA de audio predeterminado del PC (auriculares, altavoces, HDMI…). Úsala cuando pidan "pasa el sonido a los altavoces", "usa los auriculares". Si el nombre es ambiguo o ya es el predeterminado, no hace nada y lo dice.',
+    description: 'Cambia el dispositivo de SALIDA de audio predeterminado del PC. Hay tres destinos habituales: los parlantes/altavoces de la laptop (dispositivo: laptop), los auriculares o audífonos con cable (dispositivo: auriculares) y los audífonos inalámbricos o Corsair (dispositivo: inalambricos). Úsala cuando pidan "pasa el sonido a los parlantes", "usa los auriculares", "ponlo en los inalámbricos", "pásalo a los Corsair". También acepta parte del nombre de otro dispositivo (hdmi…). Si el nombre es ambiguo o ya es el predeterminado, no hace nada y lo dice.',
     schema: {
-      properties: { dispositivo: { type: 'string', maxLength: 80, description: 'Nombre o parte del nombre del dispositivo (por ejemplo auriculares, altavoces, hdmi)' } },
+      properties: { dispositivo: { type: 'string', maxLength: 80, description: 'laptop (parlantes de la laptop), auriculares (con cable), inalambricos (o corsair), o parte del nombre de otro dispositivo como hdmi' } },
       required: ['dispositivo'],
     },
     async plan(a) {
@@ -95,11 +112,18 @@ module.exports = function registerAudioControl(registry, bridge) {
       const devs = d.dispositivos || [];
       if (!devs.length) return { fail: 'Windows no muestra ningún dispositivo de salida activo.' };
       let needle = norm(a.dispositivo);
-      needle = ALIAS_DEV[needle] || needle;
       if (!needle) return { fail: 'Dime a qué dispositivo.' };
       const nombres = devs.map((x) => x.nombre).join(', ');
-      const match = devs.filter((x) => norm(x.nombre).includes(needle));
-      if (!match.length) return { fail: `No encuentro un dispositivo llamado «${a.dispositivo}». Los activos son: ${nombres}.` };
+      const porCat = porCategoria(devs, a.dispositivo);
+      let match;
+      if (porCat) {
+        match = porCat.match;
+        if (!match.length) return { fail: `No encuentro ${porCat.cat.nombre} entre los dispositivos activos. Windows solo muestra los que están conectados y encendidos. Ahora veo: ${nombres}.` };
+      } else {
+        needle = ALIAS_DEV[needle] || needle;
+        match = devs.filter((x) => norm(x.nombre).includes(needle));
+        if (!match.length) return { fail: `No encuentro un dispositivo llamado «${a.dispositivo}». Los activos son: ${nombres}.` };
+      }
       if (match.length > 1) return { clarify: { motivo: `«${a.dispositivo}» coincide con varios dispositivos.`, opciones: match.map((x) => x.nombre) } };
       const dest = match[0];
       const actual = devs.find((x) => x.predeterminado);
