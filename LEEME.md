@@ -62,3 +62,9 @@ manteniendo el mismo nombre. También se puede decir "pon el avatar de mujer" po
   "ok") tomados como orden; el micrófono recogiendo la propia voz de ELIX (eco); y el cerebro ofreciendo ayuda por su cuenta.
   Ahora esos casos se ignoran (aparece un aviso gris en pantalla) y el cerebro tiene prohibido ofrecer ayuda sin que se la pidan.
 
+## Barra de volumen y cambio de salida de audio (v1.0.31)
+- Al subir, bajar, fijar o silenciar el volumen general, ahora aparece la barra de volumen de Windows (con el nivel real).
+  El volumen por app (Spotify, Chrome…) no la muestra: Windows no tiene barra para eso.
+- Cambio de salida con tres destinos: "parlantes de la laptop", "auriculares/audífonos" (con cable) y "audífonos inalámbricos / Corsair".
+  Windows solo lista los dispositivos conectados y encendidos: si uno no aparece, ELIX dice cuáles ve. Sigue pidiendo confirmación por voz.
+

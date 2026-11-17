@@ -99,6 +99,13 @@ function sendKey(vk, times = 1) {
   const script = `$w=New-Object -ComObject WScript.Shell; 1..${n} | ForEach-Object { $w.SendKeys([char]${k}) }`;
   return new Promise((res, rej) => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 15000 }, (err) => (err ? rej(err) : res())));
 }
+// Varias teclas multimedia seguidas en una sola llamada (las usa la barra de volumen de Windows)
+function sendKeys(list) {
+  const ks = (list || []).map((k) => parseInt(k, 10)).filter(Number.isFinite).slice(0, 4);
+  if (!ks.length) return Promise.resolve();
+  const script = '$w=New-Object -ComObject WScript.Shell; ' + ks.map((k) => `$w.SendKeys([char]${k})`).join('; ');
+  return new Promise((res, rej) => execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 15000 }, (err) => (err ? rej(err) : res())));
+}
 // Volumen real de Windows (Core Audio): leer, fijar un porcentaje exacto, silenciar y quitar el silencio.
 // Solo se ejecutan órdenes fijas (get/set/up/down/mute/unmute) con un número ya validado: nunca texto libre.
 const VOL_CS = [
@@ -188,6 +195,15 @@ function formatSpecs(j) {
   return parts.join('\n');
 }
 let volKnown = { vol: null, mute: false };
+// Cambiar el volumen por Core Audio no hace aparecer la barra de Windows. Una pulsación de bajar y otra de subir
+// (neta cero: cada tecla mueve 2 %) la hacen aparecer; si el nivel era impar se vuelve a fijar el valor exacto.
+async function mostrarBarraVolumen(r) {
+  try {
+    await sendKeys(r.vol >= 2 ? [KEYS.bajar, KEYS.subir] : [KEYS.subir, KEYS.bajar]);
+    if (r.vol % 2 === 1) return await psVolume('set', r.vol);
+  } catch {}
+  return r;
+}
 function psVolume(cmd, value) {
   if (!['get', 'set', 'up', 'down', 'mute', 'unmute'].includes(cmd)) return Promise.reject(new Error('orden no válida'));
   const v = Math.max(0, Math.min(100, parseInt(value, 10) || 0));
@@ -251,7 +267,19 @@ const NATIVE = {
     } else p = 0;
     let why = '';
     try {
-      const { vol, mute } = await psVolume(cmds[accion], p);
+      let r;
+      if (accion === 'silenciar' || accion === 'activar_sonido') {
+        // Con la tecla real de silencio Windows dibuja su barra de volumen; después se comprueba el estado real
+        const quiere = accion === 'silenciar';
+        r = await psVolume('get', 0);
+        if (r.mute !== quiere) { try { await sendKey(KEYS.silenciar, 1); } catch {} }
+        r = await psVolume('get', 0);
+        if (r.mute !== quiere) r = await psVolume(quiere ? 'mute' : 'unmute', 0); // respaldo (sin barra)
+      } else {
+        r = await psVolume(cmds[accion], p);
+        if (accion !== 'consultar' && !r.mute) r = await mostrarBarraVolumen(r);
+      }
+      const { vol, mute } = r;
       volKnown = { vol, mute };
       const sil = mute ? ' (está silenciado)' : '';
       return {
