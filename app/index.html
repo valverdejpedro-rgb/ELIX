@@ -470,6 +470,7 @@ function onFinal(text) {
   if (pendingConfirm && Date.now() < pendingConfirm.exp + CONFIRM_GRACE_MS) { // esperando un sí/no (o recién vencido): se acepta sin decir “Radex”
     const mm = text.match(WAKE_START), t2 = mm && mm[1].trim() ? mm[1].trim() : text;
     if (classifyYesNo(t2)) { send(t2); return; }
+    hint('Esperaba un sí o un no y oí: «' + t2.slice(0, 60) + '».');
   }
   if (pendingLearn && Date.now() < pendingLearn.exp) { // esperando «¿aprendo esta orden?»: sí/no sin decir “Radex”
     const mm = text.match(WAKE_START), t2 = mm && mm[1].trim() ? mm[1].trim() : text;
@@ -642,11 +643,12 @@ function gemChunk(chunk, sr) {
   let sum = 0; for (const v of chunk) sum += v * v;
   const rms = Math.sqrt(sum / chunk.length) * MIC.gain, dur = chunk.length / sr;
   if (GEM.calib < 8) { GEM.noise = (GEM.noise * GEM.calib + rms) / (GEM.calib + 1); GEM.calib++; GEM.thr = Math.max(0.012, GEM.noise * 3); return; }
+  const sn = esperandoSN(); // esperando sí/no: umbral más sensible y basta un trozo (un «sí» dura menos de 0,2 s)
   if (!GEM.rec) {
     GEM.pre.push(chunk); if (GEM.pre.length > 4) GEM.pre.shift();
-    if (rms > GEM.thr) {
-      // hacen falta 2 trozos seguidos (~0,2 s) por encima del ruido: así un golpe o clic no abre la grabación
-      if (++GEM.hot >= 2) { GEM.rec = true; GEM.buf = [...GEM.pre]; GEM.pre = []; GEM.silence = 0; GEM.len = 0; GEM.voiced = dur * 2; setState('listening', 'Te escucho'); }
+    if (rms > (sn ? Math.max(0.010, GEM.noise * 2.2) : GEM.thr)) {
+      // hacen falta 2 trozos seguidos (~0,2 s) por encima del ruido: así un golpe o clic no abre la grabación (esperando sí/no basta 1)
+      if (++GEM.hot >= (sn ? 1 : 2)) { GEM.rec = true; GEM.buf = [...GEM.pre]; GEM.pre = []; GEM.silence = 0; GEM.len = 0; GEM.voiced = dur * 2; setState('listening', 'Te escucho'); }
     } else {
       GEM.hot = 0;
       // el ruido de fondo se reajusta solo mientras esperas (ventilador, calle, etc.)
@@ -656,8 +658,8 @@ function gemChunk(chunk, sr) {
     return;
   }
   GEM.buf.push(chunk); GEM.len += dur;
-  if (rms < GEM.thr * 0.7) GEM.silence += dur; else { GEM.silence = 0; GEM.voiced += dur; }
-  if (GEM.silence > 0.55 || GEM.len > 15) { const b = GEM.buf, v = GEM.voiced; gemReset(); gemFinish(b, sr, v); }
+  if (rms < (sn ? Math.max(0.010, GEM.noise * 2.2) : GEM.thr) * 0.7) GEM.silence += dur; else { GEM.silence = 0; GEM.voiced += dur; }
+  if (GEM.silence > (sn ? 0.4 : 0.55) || GEM.len > 15) { const b = GEM.buf, v = GEM.voiced; gemReset(); gemFinish(b, sr, v); }
 }
 function downsample(f32, sr, target = 16000) {
   const ratio = sr / target, n = Math.floor(f32.length / ratio), out = new Float32Array(n);
@@ -692,7 +694,7 @@ async function transcribeGroq(wav, lenient = false) {
       timeout: 15000, headers: { authorization: 'Bearer ' + key },
       form: {
         fields: { model: 'whisper-large-v3-turbo', language: 'es', temperature: '0', response_format: 'verbose_json',
-          prompt: 'Radex.' }, // solo el nombre: con frases de órdenes, Whisper las “inventaba” al oír música
+          ...(lenient ? {} : { prompt: 'Radex.' }) }, // solo el nombre (no en sí/no: lo devolvía como respuesta): con frases de órdenes, Whisper las “inventaba” al oír música
         file: { bytes: wav, type: 'audio/wav', name: 'voz.wav' },
       },
     });
@@ -705,7 +707,7 @@ async function transcribeGroq(wav, lenient = false) {
       : r.status === 429 ? 'Groq llegó al límite gratuito de transcripción por ahora.' : `Error ${r.status} de Groq al transcribir. ${det}`.trim() };
   }
   const segs = r.data.segments || [];
-  if (!lenient && segs.length && segs.every((s) => s.no_speech_prob > 0.45 || s.avg_logprob < -0.9 || s.compression_ratio > 2.2)) return ''; // solo ruido, música o texto inventado
+  if (segs.length && (lenient ? segs.every((s) => s.no_speech_prob > 0.6) : segs.every((s) => s.no_speech_prob > 0.45 || s.avg_logprob < -0.9 || s.compression_ratio > 2.2))) return ''; // solo ruido, música o texto inventado
   const t = (r.data.text || '').trim();
   if (/^r[aeá]d[eé]\w{0,2}\W*$/i.test(t) && segs.some((s) => s.no_speech_prob > 0.2 || s.avg_logprob < -0.5)) return ''; // “Radex.” suelto y dudoso = eco del prompt
   return t.length > 1 && !HALLU.test(t) ? t : '';
@@ -1057,9 +1059,9 @@ if (window.elixTools) window.elixTools.catalog().then((list) => {
   refreshMemory();
 }).catch(() => {});
 // Solo una respuesta corta y clara cuenta como sí o no; cualquier otra cosa cancela lo pendiente
-const YN_FILL = new Set(['por', 'favor', 'radex', 'gracias', 'de', 'que', 'ya', 'pues', 'eh']);
-const YN_YES = new Set(['si', 'claro', 'confirmo', 'confirmado', 'dale', 'adelante', 'hazlo', 'ok', 'okay', 'vale', 'correcto', 'afirmativo', 'procede', 'yes', 'exacto', 'acuerdo']);
-const YN_NO = new Set(['no', 'cancela', 'cancelar', 'cancelalo', 'detente', 'olvidalo', 'negativo', 'nada', 'mejor']);
+const YN_FILL = new Set(['por', 'favor', 'porfa', 'radex', 'gracias', 'de', 'que', 'ya', 'pues', 'eh', 'senor', 'esa', 'ese', 'esta', 'este', 'eso', 'esto', 'orden', 'comando', 'la', 'lo', 'totalmente', 'supuesto']);
+const YN_YES = new Set(['si', 'sip', 'sii', 'claro', 'seguro', 'obvio', 'perfecto', 'confirmo', 'confirmado', 'confirma', 'confirmala', 'confirmalo', 'dale', 'adelante', 'hazlo', 'hazla', 'cambialo', 'cambia', 'ejecuta', 'ejecutalo', 'guarda', 'guardala', 'guardalo', 'aprende', 'aprendela', 'aprendelo', 'memoriza', 'ok', 'okay', 'vale', 'correcto', 'afirmativo', 'procede', 'yes', 'exacto', 'acuerdo']);
+const YN_NO = new Set(['no', 'nop', 'nel', 'cancela', 'cancelar', 'cancelalo', 'detente', 'olvidalo', 'negativo', 'nada', 'mejor', 'jamas', 'nunca', 'tampoco']);
 function classifyYesNo(t) {
   const w = String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
   if (!w.length || w.length > 6) return null;
