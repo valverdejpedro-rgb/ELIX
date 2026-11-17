@@ -652,7 +652,7 @@ function gemChunk(chunk, sr) {
   }
   GEM.buf.push(chunk); GEM.len += dur;
   if (rms < GEM.thr * 0.7) GEM.silence += dur; else { GEM.silence = 0; GEM.voiced += dur; }
-  if (GEM.silence > 0.8 || GEM.len > 15) { const b = GEM.buf, v = GEM.voiced; gemReset(); gemFinish(b, sr, v); }
+  if (GEM.silence > 0.55 || GEM.len > 15) { const b = GEM.buf, v = GEM.voiced; gemReset(); gemFinish(b, sr, v); }
 }
 function downsample(f32, sr, target = 16000) {
   const ratio = sr / target, n = Math.floor(f32.length / ratio), out = new Float32Array(n);
@@ -1112,7 +1112,7 @@ SILENCIO: lo que oyes llega de un micrófono siempre abierto. Si el mensaje no p
 ${memBlock()}
 Entorno: ${window.elixBrowser ? 'versión de escritorio (.exe) en Windows.' : 'versión web de pruebas dentro del navegador.'} La fecha y hora actuales van entre corchetes al inicio del último mensaje del usuario.`;
 }
-function trim(h) { while (h.length > 16) h = h.slice(2); return h; }
+function trim(h) { while (h.length > 8) h = h.slice(2); return h; } // 4 turnos: menos tokens por llamada (límite gratis de Groq)
 
 const PRESETS = {
   groq: { name: 'Groq', url: 'https://api.groq.com/openai/v1', model: 'openai/gpt-oss-120b', fallbacks: ['openai/gpt-oss-20b', 'qwen/qwen3.6-27b'],
