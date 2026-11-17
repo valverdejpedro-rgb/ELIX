@@ -1,0 +1,7 @@
+Atajos de arranque (opcional)
+
+Si copias aquí tu archivo atajos.json (lo encuentras en Documentos\ELIX-respaldo\atajos.json), el instalador lo lleva
+dentro de la app. En un equipo nuevo o recién formateado, si no hay copia de seguridad en Documentos\ELIX-respaldo,
+Radex arranca con esos atajos ya aprendidos.
+
+No pongas aquí memoria.json ni nada con datos personales: el repositorio puede ser público.
