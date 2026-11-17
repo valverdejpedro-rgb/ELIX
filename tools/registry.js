@@ -18,7 +18,7 @@
 const fs = require('fs');
 const crypto = require('crypto');
 
-const CONFIRM_TTL_MS = 10000; // tope absoluto: la respuesta debe llegar como máximo 10 s después de pedir la acción
+const CONFIRM_TTL_MS = 20000; // tope absoluto: la respuesta debe llegar como máximo 20 s después de pedir la acción (antes 10 s: con el cerebro lento se vencía antes de que pudieras decir «sí»)
 const CTRL = /[\u0000-\u001f\u007f]/;
 const SECRET_KEY = /(pass|clave|key|token|secret|password|cred)/i;
 const LOG_MAX = 512 * 1024;
