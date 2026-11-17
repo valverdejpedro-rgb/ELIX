@@ -68,3 +68,14 @@ manteniendo el mismo nombre. También se puede decir "pon el avatar de mujer" po
 - Cambio de salida con tres destinos: "parlantes de la laptop", "auriculares/audífonos" (con cable) y "audífonos inalámbricos / Corsair".
   Windows solo lista los dispositivos conectados y encendidos: si uno no aparece, ELIX dice cuáles ve. Sigue pidiendo confirmación por voz.
 
+## Más rápido y atajos aprendidos (v1.0.33)
+- Arreglado: pedías un cambio (p. ej. «pasa el sonido a los altavoces»), Radex preguntaba «¿confirmas?», decías «sí» y no hacía nada.
+  Causa: el tope de 10 s se contaba desde la orden y, con el cerebro lento, se vencía antes de que pudieras responder.
+  Ahora la pregunta de confirmación se dice directo (sin otra llamada al cerebro), tienes 8 s desde que termina de preguntar (tope 20 s desde la orden),
+  y un «sí/no» muy corto ya no lo descartan los filtros anti-ruido.
+- Atajos aprendidos: cuando le das una orden NUEVA y la hace bien (comprobada), Radex pregunta «¿Quieres que aprenda esta orden?».
+  Si dices «sí», la guarda en `atajos.json` (carpeta de datos de la app, junto a `memoria.json`) y la próxima vez la ejecuta al instante, sin llamar al cerebro y sin gastar tokens.
+  Si dices «no», la marca para no volver a preguntarte. Las acciones con confirmación siguen pidiéndola siempre.
+  Solo aprende acciones de audio, volumen, multimedia, abrir apps/carpetas y ventanas. Si un atajo falla 2 veces seguidas, se olvida solo.
+- Historial más corto (4 turnos) y menos espera de silencio (0,55 s): menos tokens y respuesta más rápida.
+

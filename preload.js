@@ -32,6 +32,12 @@ contextBridge.exposeInMainWorld('elixTools', {
   confirm: (accept) => ipcRenderer.invoke('tools:confirm', !!accept),
 });
 
+// Atajos aprendidos (órdenes que ya funcionaron: se guardan en el PC y se ejecutan sin gastar tokens)
+contextBridge.exposeInMainWorld('elixAtajos', {
+  load: () => ipcRenderer.invoke('atajos:load'),
+  save: (items) => ipcRenderer.invoke('atajos:save', items),
+});
+
 // Acciones de PC (abrir apps, carpetas, volumen, multimedia, info, bloquear)
 const NATIVE_NAMES = ['abrir_aplicacion', 'abrir_carpeta', 'ajustar_volumen', 'control_multimedia', 'info_del_sistema', 'bloquear_pc', 'controlar_ventana'];
 contextBridge.exposeInMainWorld('jarvisNative', Object.fromEntries(

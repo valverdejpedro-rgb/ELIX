@@ -373,6 +373,27 @@ ipcMain.handle('tools:confirm', async (e, accept) => {
 
 let lastStatus = { estado: 'inicio' };
 const sendStatus = (s) => { lastStatus = s; try { win && win.webContents.send('update:status', s); } catch {} };
+// Atajos aprendidos: órdenes que ya funcionaron y se ejecutan sin llamar al cerebro (atajos.json, junto a memoria.json)
+const ATAJOS_FILE = () => path.join(app.getPath('userData'), 'atajos.json');
+const atajoValido = (x) => x && typeof x === 'object' && typeof x.f === 'string' && x.f.length > 0 && x.f.length <= 200
+  && typeof x.t === 'string' && /^[a-z_]{2,60}$/.test(x.t) && x.a && typeof x.a === 'object' && !Array.isArray(x.a) && JSON.stringify(x.a).length <= 500;
+ipcMain.handle('atajos:load', (e) => {
+  if (!trusted(e)) return [];
+  try { const d = JSON.parse(fs.readFileSync(ATAJOS_FILE(), 'utf8')); return (Array.isArray(d.items) ? d.items : []).filter(atajoValido).slice(0, 300); }
+  catch (err) { if (err.code !== 'ENOENT') { try { fs.renameSync(ATAJOS_FILE(), ATAJOS_FILE() + '.dañado'); } catch {} } return []; }
+});
+ipcMain.handle('atajos:save', (e, items) => {
+  if (!trusted(e) || !Array.isArray(items)) return false;
+  try {
+    const clean = items.filter(atajoValido).slice(0, 300).map((x) => ({ f: x.f, t: x.t, a: x.a, n: x.n | 0, c: x.c | 0, ...(x.r ? { r: 1 } : {}) }));
+    const f = ATAJOS_FILE(), tmp = f + '.tmp';
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, items: clean }, null, 1), 'utf8');
+    fs.renameSync(tmp, f);
+    return true;
+  } catch { return false; }
+});
+
 ipcMain.handle('app:info', (e) => trusted(e) ? { version: app.getVersion(), status: lastStatus } : null);
 ipcMain.handle('app:check', (e) => {
   if (!trusted(e)) return;

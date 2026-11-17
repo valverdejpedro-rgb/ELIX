@@ -103,7 +103,7 @@ async function logicTests() {
   const regDef = createRegistry();
   regDef.register({ name: 'tool_d', risk: 'confirm', description: 'd', plan: async () => ({ resolved: {}, resumen: 'D' }), run: async () => ({ ok: true, verified: true, mensaje: 'ok' }) });
   r = await regDef.invoke('tool_d', {});
-  check('por defecto la confirmación dura 10 s como máximo', r.pending && r.pending.ttl <= 10000 && r.pending.ttl >= 5000, String(r.pending && r.pending.ttl));
+  check('por defecto la confirmación dura 20 s como máximo', r.pending && r.pending.ttl <= 20000 && r.pending.ttl >= 5000, String(r.pending && r.pending.ttl));
 
   const cat = reg.catalog();
   check('el catálogo no expone funciones ni límites internos', cat.every((t) => !('run' in t) && !('plan' in t)) && !JSON.stringify(cat).includes('maxLength'));
