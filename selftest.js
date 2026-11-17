@@ -338,9 +338,27 @@ async function windowsAudioTests() {
   } finally { br.stop(); }
 }
 
+async function memoriaTests() {
+  console.log('\n[M] Memoria permanente');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'elix-mem-'));
+  const reg = createRegistry({ ttlMs: 2000 });
+  require('./tools/memoria')(reg).setDir(dir);
+  let r = await reg.invoke('memoria_guardar', { tipo: 'proceso', titulo: 'Prueba', texto: 'paso 1, paso 2' });
+  check('guarda y verifica', r.ok && r.verified, r.text);
+  r = await reg.invoke('memoria_guardar', { titulo: 'Secreto', texto: 'mi contraseña es 1234' });
+  check('rechaza contraseñas', !r.ok, r.text);
+  r = await reg.invoke('memoria_consultar', { busqueda: 'prueba' });
+  check('consulta lo guardado', /paso 1/.test(r.text), r.text);
+  r = await reg.invoke('memoria_olvidar', { titulo: 'Prueba' });
+  check('olvidar pide confirmación', !!r.pending, r.text);
+  r = await reg.confirm(true);
+  check('olvida y verifica', r.ok && r.verified, r.text);
+}
+
 (async () => {
-  console.log('Radex — autodiagnóstico de herramientas (etapas 1, 2 y 3)');
+  console.log('Radex — autodiagnóstico de herramientas (etapas 1 a 4)');
   await logicTests();
+  await memoriaTests();
   await audioLogicTests();
   await audioControlTests();
   await powershellTests();

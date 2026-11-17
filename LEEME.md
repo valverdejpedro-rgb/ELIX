@@ -51,3 +51,14 @@ manteniendo el mismo nombre. También se puede decir "pon el avatar de mujer" po
   Usa una interfaz no documentada de Windows (IPolicyConfig); el diagnóstico dice si está disponible.
 - Código: `native/audio-control.ps1` (cambia el audio) separado de `native/audio.ps1` (solo lectura), y `tools/audio-control.js`.
 - El diagnóstico ahora da más detalle (dispositivos, volúmenes, apps con audio, si el cambio de dispositivo está disponible).
+
+## Memoria permanente y menos respuestas fantasma (v1.0.30)
+- Memoria: ELIX guarda en `memoria.json` (carpeta de datos de la app, junto a `tools-log.jsonl`) lo que le pidas recordar:
+  procesos (pasos de cómo hacer algo), datos y preferencias. Ejemplos: "Radex, recuerda este proceso: para subir cambios…",
+  "¿qué recuerdas?", "¿cómo era el proceso de…?", "Radex, olvida el proceso de…" (esto último pide confirmación por voz).
+  Nunca guarda contraseñas, claves ni números largos. No guarda nada si no se lo pides. Código: `tools/memoria.js`.
+- Modo conversación (ya existía): di "Radex" una vez y sigue atento sin repetir el nombre; "Radex, desactívate" lo duerme.
+- Corregido: respuestas "¿en qué puedo ayudarte?" sin que nadie hable. Causas atendidas: ruido o muletillas ("mmm", "gracias",
+  "ok") tomados como orden; el micrófono recogiendo la propia voz de ELIX (eco); y el cerebro ofreciendo ayuda por su cuenta.
+  Ahora esos casos se ignoran (aparece un aviso gris en pantalla) y el cerebro tiene prohibido ofrecer ayuda sin que se la pidan.
+
