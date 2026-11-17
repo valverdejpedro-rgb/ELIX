@@ -364,15 +364,48 @@ ipcMain.handle('native:run', async (e, name, input) => {
 ipcMain.handle('tools:catalog', (e) => (trusted(e) ? elixTools.catalog() : []));
 ipcMain.handle('tools:run', async (e, name, args) => {
   if (!trusted(e)) return { ok: false, verified: false, mensaje: 'No permitido.', text: 'FALLÓ: No permitido.' };
+  programarRespaldo(); // si fue memoria_guardar / memoria_olvidar, la copia se actualiza sola
   return elixTools.run(String(name), args && typeof args === 'object' && !Array.isArray(args) ? args : {});
 });
 ipcMain.handle('tools:confirm', async (e, accept) => {
   if (!trusted(e)) return { ok: false, verified: false, mensaje: 'No permitido.', text: 'FALLÓ: No permitido.' };
+  programarRespaldo();
   return elixTools.confirm(accept === true);
 });
 
 let lastStatus = { estado: 'inicio' };
 const sendStatus = (s) => { lastStatus = s; try { win && win.webContents.send('update:status', s); } catch {} };
+// ---- Copia de seguridad automática (para formatear o cambiar de equipo) ----
+// Atajos y memoria se copian a Documentos\ELIX-respaldo (si OneDrive protege tus Documentos, ya queda en la nube).
+// Al arrancar, si faltan en este equipo, se restauran desde ahí; y si tampoco hay copia, los atajos vienen de datos-base/ (dentro del instalador).
+// Nunca se copian claves de API ni contraseñas.
+const RESPALDO_ARCHIVOS = ['atajos.json', 'memoria.json'];
+const respaldoDir = () => path.join(app.getPath('documents'), 'ELIX-respaldo');
+const datosDir = () => app.getPath('userData');
+function copiarSiCambio(origen, destino) {
+  const nuevo = fs.readFileSync(origen);
+  let viejo = null; try { viejo = fs.readFileSync(destino); } catch {}
+  if (viejo && viejo.equals(nuevo)) return;
+  fs.mkdirSync(path.dirname(destino), { recursive: true });
+  fs.writeFileSync(destino + '.tmp', nuevo); fs.renameSync(destino + '.tmp', destino);
+}
+function respaldarAhora() {
+  for (const f of RESPALDO_ARCHIVOS) { try { const o = path.join(datosDir(), f); if (fs.existsSync(o)) copiarSiCambio(o, path.join(respaldoDir(), f)); } catch {} }
+}
+let respaldoT = null;
+function programarRespaldo() { clearTimeout(respaldoT); respaldoT = setTimeout(respaldarAhora, 3000); }
+function restaurarSiFalta() {
+  for (const f of RESPALDO_ARCHIVOS) {
+    try {
+      const local = path.join(datosDir(), f);
+      if (fs.existsSync(local)) continue;
+      const copia = path.join(respaldoDir(), f), base = path.join(__dirname, 'datos-base', f);
+      if (fs.existsSync(copia)) copiarSiCambio(copia, local);
+      else if (f === 'atajos.json' && fs.existsSync(base)) copiarSiCambio(base, local);
+    } catch {}
+  }
+}
+
 // Atajos aprendidos: órdenes que ya funcionaron y se ejecutan sin llamar al cerebro (atajos.json, junto a memoria.json)
 const ATAJOS_FILE = () => path.join(app.getPath('userData'), 'atajos.json');
 const atajoValido = (x) => x && typeof x === 'object' && typeof x.f === 'string' && x.f.length > 0 && x.f.length <= 200
@@ -390,6 +423,7 @@ ipcMain.handle('atajos:save', (e, items) => {
     fs.mkdirSync(path.dirname(f), { recursive: true });
     fs.writeFileSync(tmp, JSON.stringify({ v: 1, items: clean }, null, 1), 'utf8');
     fs.renameSync(tmp, f);
+    programarRespaldo();
     return true;
   } catch { return false; }
 });
@@ -457,7 +491,7 @@ const lock = app.requestSingleInstanceLock();
 if (!lock) app.quit();
 else {
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
-  app.whenReady().then(() => { elixTools.init({ logFile: path.join(app.getPath('userData'), 'tools-log.jsonl') }); createWindow(); setupUpdater(); });
+  app.whenReady().then(() => { restaurarSiFalta(); respaldarAhora(); elixTools.init({ logFile: path.join(app.getPath('userData'), 'tools-log.jsonl') }); createWindow(); setupUpdater(); });
   app.on('window-all-closed', () => app.quit());
   app.on('before-quit', () => { try { elixTools.shutdown(); } catch {} });
 }

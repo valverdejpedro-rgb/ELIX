@@ -1,7 +1,7 @@
 {
   "name": "elix",
   "productName": "Radex",
-  "version": "1.0.33",
+  "version": "1.0.34",
   "description": "Radex - asistente de IA",
   "main": "main.js",
   "author": "Pedro",
@@ -22,7 +22,7 @@
   "build": {
     "appId": "com.pedro.elix",
     "productName": "Radex",
-    "files": ["main.js", "preload.js", "browser.js", "netproxy.js", "app/**/*", "tools/**/*", "native/**/*"],
+    "files": ["main.js", "preload.js", "browser.js", "netproxy.js", "app/**/*", "tools/**/*", "native/**/*", "datos-base/**/*"],
     "win": { "target": "nsis" },
     "nsis": {
       "oneClick": true,
