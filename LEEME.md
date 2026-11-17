@@ -79,3 +79,12 @@ manteniendo el mismo nombre. También se puede decir "pon el avatar de mujer" po
   Solo aprende acciones de audio, volumen, multimedia, abrir apps/carpetas y ventanas. Si un atajo falla 2 veces seguidas, se olvida solo.
 - Historial más corto (4 turnos) y menos espera de silencio (0,55 s): menos tokens y respuesta más rápida.
 
+## Copia de seguridad y «sí» más fiable (v1.0.34)
+- Copia automática: cada vez que aprende un atajo o guarda/olvida algo en la memoria, Radex copia `atajos.json` y `memoria.json`
+  a `Documentos\ELIX-respaldo`. Si en un equipo nuevo (o tras formatear) faltan, los restaura solos al arrancar.
+  Si tus Documentos están protegidos con OneDrive, la copia ya queda en la nube. Las claves de API NO se copian (hay que pegarlas de nuevo en el panel de API).
+- Atajos dentro del instalador: copia `atajos.json` a la carpeta `datos-base/` del repositorio y sube una versión: un equipo nuevo, sin copia en Documentos, arranca con esos atajos.
+  No pongas `memoria.json` en el repositorio (puede ser público).
+- Al esperar un «sí/no», el micrófono es más sensible (basta una palabra muy corta), se aceptan más formas de decirlo
+  («sí, guárdala», «claro», «cámbialo»…) y si oye otra cosa, muestra en pantalla lo que entendió.
+
