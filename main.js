@@ -379,7 +379,7 @@ const sendStatus = (s) => { lastStatus = s; try { win && win.webContents.send('u
 // Atajos y memoria se copian a Documentos\ELIX-respaldo (si OneDrive protege tus Documentos, ya queda en la nube).
 // Al arrancar, si faltan en este equipo, se restauran desde ahí; y si tampoco hay copia, los atajos vienen de datos-base/ (dentro del instalador).
 // Nunca se copian claves de API ni contraseñas.
-const RESPALDO_ARCHIVOS = ['atajos.json', 'memoria.json'];
+const RESPALDO_ARCHIVOS = ['atajos.json', 'memoria.json', 'dispositivos-audio.json'];
 const respaldoDir = () => path.join(app.getPath('documents'), 'ELIX-respaldo');
 const datosDir = () => app.getPath('userData');
 function copiarSiCambio(origen, destino) {

@@ -95,3 +95,10 @@ manteniendo el mismo nombre. También se puede decir "pon el avatar de mujer" po
 - Las preguntas de confirmación ahora te dicen cómo responder: «Di “sí, hazlo” o “no”» (una sola palabra, «sí», a veces no la entiende la transcripción).
 - Si algún micrófono se clasifica mal (Windows les pone nombres distintos según el equipo), di una parte de su nombre: «usa el micrófono USB».
 
+## Reconocer bien cuál micrófono es cuál (v1.0.36)
+- Clasificación del conjunto de micrófonos: lo que tú le enseñes manda; luego los nombres (Corsair/inalámbrico/headset → audífonos; USB y marcas de micrófono → externo; Array/Matriz/Realtek/integrado → laptop);
+  y si solo queda uno sin reconocer, se deduce por descarte.
+- Enseñarle: di «el micrófono Realtek es el de la laptop», «el USB es el externo» o «el Corsair es el de los audífonos» (herramienta `audio_asignar_microfono`).
+  Si no sabes cómo los llama Windows, pregunta «¿qué micrófonos tengo?» y te los lista. Se guarda en `dispositivos-audio.json` (junto a `atajos.json`) y entra en la copia de seguridad.
+- Si pides «el micrófono de la laptop» y no lo tiene identificado, ya no se queda en silencio: te dice los micrófonos que ve y cómo enseñárselo.
+

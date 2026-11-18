@@ -300,6 +300,33 @@ async function audioControlTests() {
   r = await reg.invoke('audio_en_uso', { cual: 'salida' });
   check('audio_en_uso: si solo preguntan por la salida, solo contesta la salida', r.ok && /Salida en uso/.test(r.mensaje) && !/Entrada/.test(r.mensaje), r.text);
 
+  // Nombres que Windows pone y no se reconocen: por descarte, y enseñándolos
+  const anm = require('./tools/audio-nombres');
+  anm.setDir(require('fs').mkdtempSync(require('path').join(require('os').tmpdir(), 'elix-alias-')));
+  for (const m of st.mics) m.predeterminado = false;
+  st.mics[2].predeterminado = true;
+  st.mics[0].nombre = 'Conjunto de dispositivos (Chip Raro)';
+  r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'laptop' });
+  check('micrófono: si el interno tiene un nombre raro, se deduce por descarte (USB y Corsair ya conocidos)', !!r.pending && /laptop/.test(r.text), r.text);
+  await reg.confirm(false);
+  st.mics[2].nombre = 'Microphone (Modelo X)';
+  r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'laptop' });
+  check('micrófono: con dos sin reconocer no adivina: lista los micrófonos y explica cómo enseñarle', !r.ok && !r.pending && /Chip Raro/.test(r.text) && /Modelo X/.test(r.text) && /es el de la laptop/.test(r.text), r.text);
+  r = await reg.invoke('audio_asignar_microfono', { dispositivo: 'chip raro', rol: 'laptop' });
+  check('audio_asignar_microfono: guarda la etiqueta y la verifica', r.ok && r.verified, r.text);
+  r = await reg.invoke('audio_asignar_microfono', { dispositivo: 'modelo x', rol: 'externo' });
+  check('audio_asignar_microfono: también el externo', r.ok && r.verified, r.text);
+  r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'laptop' });
+  check('después de enseñarle, «laptop» ya se encuentra', !!r.pending, r.text);
+  r = await reg.confirm(true);
+  check('...y el cambio queda verificado', r.verified && st.mics[0].predeterminado, r.text);
+  check('lo enseñado queda guardado en el archivo (uno por rol)', anm.leerAlias().length === 2);
+  r = await reg.invoke('audio_asignar_microfono', { dispositivo: 'r', rol: 'laptop' });
+  check('audio_asignar_microfono: nombre que coincide con varios → pregunta cuál, no guarda', !r.ok && !r.pending && anm.leerAlias().length === 2, r.text);
+  r = await reg.invoke('audio_asignar_microfono', { dispositivo: 'corsair', rol: 'laptop' });
+  await reg.invoke('audio_asignar_microfono', { dispositivo: 'chip raro', rol: 'laptop' });
+  check('enseñar de nuevo un rol reemplaza al anterior (no se duplica)', anm.leerAlias().filter((x) => x.rol === 'laptop').length === 1);
+
   const srcCtl = fs.readFileSync(path.join(__dirname, 'native', 'audio-control.ps1'), 'utf8');
   const srcLect = fs.readFileSync(path.join(__dirname, 'native', 'audio.ps1'), 'utf8');
   check('ningún módulo declara clases COM con "new" (chocarían entre sí al cargarse los dos)', !/new\s+(MMDeviceEnumeratorCom|PolicyConfigClient)\s*\(/.test(srcLect + srcCtl) && !/class\s+(MMDeviceEnumeratorCom|PolicyConfigClient)/.test(srcLect + srcCtl));
