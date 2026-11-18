@@ -60,12 +60,23 @@ function clasificarEntradas(devs) {
   return mapa;
 }
 const ETIQUETA_ENTRADA = { auriculares: 'el micrófono de los audífonos', laptop: 'el micrófono de la laptop', externo: 'el micrófono externo' };
-// Texto para decir un micrófono en voz alta (con su nombre de Windows cuando no es de los tres conocidos o es el externo)
-function decirMicrofono(dev, mapa) {
-  const c = mapa ? mapa.get(dev) : null;
-  if (c === 'auriculares' || c === 'laptop') return ETIQUETA_ENTRADA[c];
-  const nombre = (dev && dev.nombre) || 'sin nombre';
-  return c === 'externo' ? `el micrófono externo «${nombre}»` : `el micrófono «${nombre}»`;
+
+// ---- Nombres directos para decir en voz alta: «micrófono externo ETHOS 101», «audífonos inalámbricos CORSAIR»… ----
+const MARCAS = { corsair: 'CORSAIR', hyperx: 'HyperX', logitech: 'Logitech', razer: 'Razer', steelseries: 'SteelSeries', redragon: 'Redragon', jbl: 'JBL', sony: 'Sony', airpods: 'AirPods', jabra: 'Jabra', bose: 'Bose', anker: 'Anker', soundcore: 'Soundcore', beats: 'Beats', xiaomi: 'Xiaomi', samsung: 'Samsung', huawei: 'Huawei' };
+function marcaDe(nombre) { const n = norm(nombre); for (const k of Object.keys(MARCAS)) if (n.includes(k)) return MARCAS[k]; return ''; }
+const GENERICAS = new Set(['usb', 'audio', 'device', 'dispositivo', 'dispositivos', 'microphone', 'microfono', 'micro', 'mic', 'headset', 'headphone', 'headphones', 'auricular', 'auriculares', 'audifono', 'audifonos', 'altavoz', 'altavoces', 'speaker', 'speakers', 'realtek', 'high', 'definition', 'gaming', 'receiver', 'wireless', 'hands', 'free', 'handsfree', 'stereo', 'rgb', 'digital', 'array', 'interno', 'integrado', 'pnp', 'sound', 'de', 'la', 'el', 'r', 'tm']);
+// «Micrófono (ETHOS 101)» → «ETHOS 101». Si solo trae palabras genéricas («USB Audio Device») → vacío.
+function modeloDe(nombre) {
+  const raw = String(nombre || ''), m = raw.match(/\((.*)\)\s*$/);
+  const base = (m ? m[1] : raw).replace(/\((?:R|TM)\)/gi, ' ');
+  return base.split(/\s+/).filter((w) => { const k = norm(w); return k && !GENERICAS.has(k); }).join(' ').trim().slice(0, 40);
+}
+function etiquetaMic(dev, mapa) {
+  const c = mapa ? mapa.get(dev) : null, nombre = (dev && dev.nombre) || '';
+  if (c === 'laptop') return 'micrófono de la laptop';
+  if (c === 'auriculares') { const marca = marcaDe(nombre); return (INALAMB.test(norm(nombre)) ? 'audífonos inalámbricos' : 'audífonos') + (marca ? ' ' + marca : ''); }
+  if (c === 'externo') { const mo = modeloDe(nombre); return 'micrófono externo' + (mo ? ' ' + mo : ''); }
+  return nombre ? `micrófono «${nombre}»` : 'micrófono';
 }
 
 // ---- Salida (altavoces/auriculares) ----
@@ -77,5 +88,12 @@ function categoriaSalida(nombre) {
   return null;
 }
 const ETIQUETA_SALIDA = { inalambrico: 'los audífonos inalámbricos', cable: 'los auriculares con cable', laptop: 'los parlantes de la laptop' };
+function etiquetaSalida(dev) {
+  const nombre = (dev && dev.nombre) || '', c = categoriaSalida(nombre);
+  if (c === 'laptop') return 'altavoces de la laptop';
+  if (c === 'inalambrico') { const marca = marcaDe(nombre); return 'audífonos inalámbricos' + (marca ? ' ' + marca : ''); }
+  if (c === 'cable') return 'altavoces externos';
+  return nombre ? `«${nombre}»` : 'otro dispositivo';
+}
 
-module.exports = { norm, setDir, leerAlias, guardarAlias, clasificarEntradas, decirMicrofono, categoriaSalida, ETIQUETA_ENTRADA, ETIQUETA_SALIDA, ROLES_ENTRADA };
+module.exports = { norm, setDir, leerAlias, guardarAlias, clasificarEntradas, etiquetaMic, etiquetaSalida, modeloDe, marcaDe, categoriaSalida, ETIQUETA_ENTRADA, ETIQUETA_SALIDA, ROLES_ENTRADA };
