@@ -4,6 +4,7 @@
 // Siempre se resuelve primero qué app o dispositivo es (plan); si hay duda, no se hace nada y se pregunta.
 // Después de actuar se vuelve a leer Windows para comprobar que quedó así (VERIFICADO).
 const { leerAudio } = require('./audio');
+const { categoriaEntrada, ETIQUETA_ENTRADA, decirMicrofono } = require('./audio-nombres');
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 const ALIAS_APP = { 'google chrome': 'chrome', 'microsoft edge': 'msedge', edge: 'msedge', sistema: 'sonidos del sistema', sonidos: 'sonidos del sistema' };
@@ -140,6 +141,55 @@ module.exports = function registerAudioControl(registry, bridge) {
       const def = (d2.dispositivos || []).find((x) => x.predeterminado);
       if (def && def.id === r.id) return { ok: true, verified: true, mensaje: `Listo: la salida de audio ahora es ${r.nombre}.` };
       return { ok: true, verified: false, mensaje: `Pedí cambiar a ${r.nombre}, pero Windows sigue mostrando ${def ? def.nombre : 'otro dispositivo'} como predeterminado.` };
+    },
+  });
+
+  // Micrófonos (dispositivo de ENTRADA): mismo mecanismo y mismas garantías que la salida (plan → confirmación por voz → cambio → verificación)
+  registry.register({
+    name: 'audio_cambiar_microfono',
+    risk: 'confirm',
+    description: 'Cambia el MICRÓFONO (dispositivo de ENTRADA de audio) predeterminado del PC. Hay tres destinos habituales: el micrófono de la laptop (dispositivo: laptop), un micrófono externo, USB o de conector (dispositivo: externo) y el micrófono de los audífonos inalámbricos o Corsair (dispositivo: auriculares). También acepta parte del nombre del micrófono. Úsala cuando pidan “pasa al micrófono de la laptop”, “usa el micrófono externo” o “usa el micrófono de los audífonos/Corsair”. Para cambiar la SALIDA (parlantes o auriculares) usa audio_cambiar_dispositivo.',
+    schema: {
+      properties: { dispositivo: { type: 'string', maxLength: 80, description: 'laptop (micrófono de la laptop), externo (USB o de conector), auriculares (audífonos inalámbricos o Corsair), o parte del nombre del micrófono' } },
+      required: ['dispositivo'],
+    },
+    async plan(a) {
+      let d;
+      try { d = await leerAudio(bridge, 'entrada'); } catch (e) { return { fail: 'No pude leer el audio de Windows: ' + e.message }; }
+      const todos = d.dispositivos || [];
+      const devs = todos.filter((x) => categoriaEntrada(x.nombre) !== 'mezcla'); // la «mezcla estéreo» no es un micrófono
+      if (!devs.length) return { fail: 'Windows no muestra ningún micrófono activo.' };
+      const q = norm(a.dispositivo);
+      if (!q) return { fail: 'Dime a qué micrófono.' };
+      const nombres = devs.map((x) => x.nombre).join(', ');
+      let cat = null;
+      if (/inalambric|wireless|bluetooth|corsair|airpods|buds|auricular|audifono|headset|casco|diadema/.test(q)) cat = 'auriculares';
+      else if (/laptop|portatil|integrad|interno|compu|\bpc\b|array|matriz/.test(q)) cat = 'laptop';
+      else if (/externo|usb|jack|conector|afuera/.test(q)) cat = 'externo';
+      let match;
+      if (cat) {
+        match = devs.filter((x) => categoriaEntrada(x.nombre) === cat);
+        if (!match.length) return { fail: `No encuentro ${cat === 'externo' ? 'un micrófono externo' : ETIQUETA_ENTRADA[cat]} entre los micrófonos activos. Windows solo muestra los que están conectados y encendidos. Ahora veo: ${nombres}.` };
+      } else {
+        match = devs.filter((x) => norm(x.nombre).includes(q));
+        if (!match.length) return { fail: `No encuentro un micrófono llamado «${a.dispositivo}». Los activos son: ${nombres}.` };
+      }
+      if (match.length > 1) return { clarify: { motivo: `«${a.dispositivo}» coincide con varios micrófonos.`, opciones: match.map((x) => x.nombre) } };
+      const dest = match[0];
+      const actual = todos.find((x) => x.predeterminado);
+      if (dest.predeterminado) return { fail: `${decirMicrofono(dest)} ya es el micrófono predeterminado.` };
+      if (!ID_RE.test(String(dest.id))) return { fail: 'Windows dio un identificador de dispositivo que no reconozco; no cambio nada.' };
+      return { resolved: { id: dest.id, nombre: decirMicrofono(dest), anterior: actual ? decirMicrofono(actual) : '' }, resumen: `Voy a cambiar el micrófono${actual ? ' de ' + decirMicrofono(actual) : ''} a ${decirMicrofono(dest)}` };
+    },
+    async run(a, r) {
+      if (!ID_RE.test(String(r.id))) return { ok: false, mensaje: 'Identificador de dispositivo no válido.' };
+      try { await bridge.request('audio.dispositivo', { id: r.id }, { module: 'audio-control', timeout: 30000 }); }
+      catch (e) { return { ok: false, mensaje: 'No pude cambiar el micrófono: ' + e.message + ' No se cambió nada.' }; }
+      let d2;
+      try { d2 = await leerAudio(bridge, 'entrada'); } catch { return { ok: true, verified: false, mensaje: `Pedí cambiar a ${r.nombre}, pero no pude comprobar el resultado.` }; }
+      const def = (d2.dispositivos || []).find((x) => x.predeterminado);
+      if (def && def.id === r.id) return { ok: true, verified: true, mensaje: `Listo: el micrófono ahora es ${r.nombre}.` };
+      return { ok: true, verified: false, mensaje: `Pedí cambiar a ${r.nombre}, pero Windows sigue mostrando ${def ? decirMicrofono(def) : 'otro micrófono'} como predeterminado.` };
     },
   });
 };

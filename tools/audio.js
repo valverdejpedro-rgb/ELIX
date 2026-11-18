@@ -7,6 +7,8 @@ async function leerAudio(bridge, direccion) {
   try { return JSON.parse(r && r.json); } catch { throw new Error('Windows devolvió datos de audio que no pude entender.'); }
 }
 
+const { categoriaEntrada, categoriaSalida, ETIQUETA_ENTRADA, ETIQUETA_SALIDA } = require('./audio-nombres');
+
 function registerAudio(registry, bridge) {
   const ESTADO = { 0: 'inactiva', 1: 'activa' };
   const SUENA = 2; // pico (0-100) a partir del cual se considera que algo está sonando
@@ -27,6 +29,38 @@ function registerAudio(registry, bridge) {
       try { d = await leerAudio(bridge, direccion); }
       catch (e) { return { ok: false, mensaje: 'No pude leer el audio de Windows: ' + e.message }; }
       return { ok: true, verified: true, ...resumir(d) };
+    },
+  });
+
+  registry.register({
+    name: 'audio_en_uso',
+    risk: 'safe',
+    description: 'SOLO LECTURA: dice qué dispositivo de audio de SALIDA (parlantes o auriculares) y qué dispositivo de ENTRADA (micrófono) está usando Windows ahora mismo, con su volumen. Úsala cuando pregunten “¿qué audio de salida tengo en uso?”, “¿qué audio de entrada tengo en uso?”, “¿qué micrófono estoy usando?” o “¿qué audio tengo en uso?”. cual: salida, entrada o ambos (por defecto ambos; si solo preguntan por uno, pon solo ese).',
+    schema: {
+      properties: {
+        cual: { type: 'string', enum: ['ambos', 'salida', 'entrada'], description: 'salida = parlantes/auriculares; entrada = micrófono; ambos = los dos (por defecto)' },
+      },
+      required: [],
+    },
+    async run(args) {
+      const cual = args.cual === 'salida' || args.cual === 'entrada' ? args.cual : 'ambos';
+      const dirs = cual === 'ambos' ? ['salida', 'entrada'] : [cual];
+      const partes = [], nombres = [];
+      for (const dir of dirs) {
+        let d;
+        try { d = await leerAudio(bridge, dir); }
+        catch (e) { return { ok: false, mensaje: 'No pude leer el audio de Windows: ' + e.message }; }
+        const devs = Array.isArray(d.dispositivos) ? d.dispositivos : [];
+        const def = devs.find((x) => x.predeterminado);
+        const titulo = dir === 'salida' ? 'Salida' : 'Entrada';
+        if (!def) { partes.push(`${titulo}: Windows no muestra ningún dispositivo activo`); continue; }
+        const cat = dir === 'salida' ? categoriaSalida(def.nombre) : categoriaEntrada(def.nombre);
+        const etiqueta = (dir === 'salida' ? ETIQUETA_SALIDA : ETIQUETA_ENTRADA)[cat];
+        const quien = etiqueta || def.nombre || 'un dispositivo sin nombre';
+        partes.push(`${titulo} en uso: ${quien}${def.volumen == null ? '' : ', volumen ' + def.volumen + '%'}${def.silenciado ? ', silenciado' : ''}`);
+        nombres.push(`${titulo}: «${def.nombre || '(sin nombre)'}»`);
+      }
+      return { ok: true, verified: true, mensaje: partes.join('. ') + '.', detalle: 'Nombre exacto en Windows → ' + nombres.join('; ') };
     },
   });
 
