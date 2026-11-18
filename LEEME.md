@@ -88,3 +88,10 @@ manteniendo el mismo nombre. También se puede decir "pon el avatar de mujer" po
 - Al esperar un «sí/no», el micrófono es más sensible (basta una palabra muy corta), se aceptan más formas de decirlo
   («sí, guárdala», «claro», «cámbialo»…) y si oye otra cosa, muestra en pantalla lo que entendió.
 
+## Micrófonos y «qué audio tengo en uso» (v1.0.35)
+- Nueva herramienta `audio_cambiar_microfono` (pide confirmación por voz, igual que la salida): «pasa al micrófono de la laptop», «usa el micrófono externo»,
+  «usa el micrófono de los audífonos / Corsair». Cambia el micrófono predeterminado de Windows y lo verifica. La «mezcla estéreo» nunca se ofrece.
+- Nueva herramienta `audio_en_uso` (solo lectura): «¿qué audio de salida tengo en uso?», «¿qué audio de entrada tengo en uso?» o «¿qué audio tengo en uso?» → contesta los dispositivos que Windows usa ahora, con su volumen.
+- Las preguntas de confirmación ahora te dicen cómo responder: «Di “sí, hazlo” o “no”» (una sola palabra, «sí», a veces no la entiende la transcripción).
+- Si algún micrófono se clasifica mal (Windows les pone nombres distintos según el equipo), di una parte de su nombre: «usa el micrófono USB».
+

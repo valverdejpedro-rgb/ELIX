@@ -166,6 +166,12 @@ async function audioControlTests() {
       { id: ID2, nombre: 'Auriculares (Realtek)', volumen: 60, silenciado: false, predeterminado: true, pico: 5 },
       { id: ID3, nombre: 'Monitor HDMI (NVIDIA)', volumen: 100, silenciado: false, predeterminado: false, pico: 0 },
     ],
+    mics: [
+      { id: '{0.0.1.00000000}.{aaaaaaaa-0000-0000-0000-0000000000a1}', nombre: 'Microphone Array (Realtek(R) Audio)', volumen: 100, silenciado: false, predeterminado: true, pico: 0 },
+      { id: '{0.0.1.00000000}.{bbbbbbbb-0000-0000-0000-0000000000a2}', nombre: 'Micrófono (CORSAIR HS80 Wireless Gaming Receiver)', volumen: 80, silenciado: false, predeterminado: false, pico: 0 },
+      { id: '{0.0.1.00000000}.{cccccccc-0000-0000-0000-0000000000a3}', nombre: 'Micrófono (USB Audio Device)', volumen: 70, silenciado: false, predeterminado: false, pico: 0 },
+      { id: '{0.0.1.00000000}.{dddddddd-0000-0000-0000-0000000000a4}', nombre: 'Mezcla estéreo (Realtek(R) Audio)', volumen: 100, silenciado: false, predeterminado: false, pico: 0 },
+    ],
     apps: [
       { nombre: 'Spotify', proceso: 'Spotify', pid: 10, volumen: 70, silenciada: false, estado: 1, pico: 30 },
       { nombre: 'chrome', proceso: 'chrome', pid: 11, volumen: 100, silenciada: false, estado: 1, pico: 10 },
@@ -179,7 +185,7 @@ async function audioControlTests() {
   const bridge = {
     request: async (cmd, args) => {
       calls.push({ cmd, args });
-      if (cmd === 'audio.leer') return { json: JSON.stringify({ direccion: 'salida', dispositivos: st.devs, apps: st.apps }) };
+      if (cmd === 'audio.leer') return { json: JSON.stringify(args.direccion === 'entrada' ? { direccion: 'entrada', dispositivos: st.mics, apps: [] } : { direccion: 'salida', dispositivos: st.devs, apps: st.apps }) };
       if (cmd === 'audio.app') {
         if (rechazar) return { afectadas: 0 };
         let n = 0;
@@ -192,7 +198,8 @@ async function audioControlTests() {
       }
       if (cmd === 'audio.dispositivo') {
         if (rechazar) throw new Error('Windows rechazó el cambio');
-        for (const d of st.devs) d.predeterminado = d.id === args.id;
+        const lista = st.mics.some((m) => m.id === args.id) ? st.mics : st.devs;
+        for (const d of lista) d.predeterminado = d.id === args.id;
         return { ok: true };
       }
       throw new Error('comando inesperado ' + cmd);
@@ -200,6 +207,7 @@ async function audioControlTests() {
   };
   const reg = createRegistry({ ttlMs: 400 });
   require('./tools/audio-control')(reg, bridge);
+  require('./tools/audio')(reg, bridge);
   const cambios = () => calls.filter((c) => c.cmd === 'audio.app' || c.cmd === 'audio.dispositivo').length;
 
   let r = await reg.invoke('audio_volumen_app', { app: 'spotify', accion: 'bajar' });
@@ -260,6 +268,37 @@ async function audioControlTests() {
   st.devs[2].id = 'x; calc.exe';
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'hdmi' });
   check('un identificador de dispositivo raro nunca llega a PowerShell', !r.ok && !r.pending, r.text);
+
+  // Micrófonos (entrada) y «qué tengo en uso»
+  rechazar = false;
+  const c3 = cambios();
+  r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'laptop' });
+  check('micrófono: si ya es el de la laptop → FALLÓ y no pide confirmar', !r.ok && !r.pending && /ya es/.test(r.text), r.text);
+  r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'audífonos inalámbricos' });
+  check('micrófono: cambiar a audífonos queda PENDIENTE y no cambia nada', !!r.pending && /audífonos/.test(r.text) && cambios() === c3 && st.mics[0].predeterminado, r.text);
+  r = await reg.confirm(true);
+  check('micrófono: al confirmar pasa al Corsair y lo verifica', r.ok && r.verified && st.mics[1].predeterminado && !st.mics[0].predeterminado, r.text);
+  r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'externo' });
+  r = await reg.confirm(true);
+  check('micrófono: «externo» elige el USB (no el de la laptop, ni el Corsair, ni la mezcla estéreo)', r.verified && st.mics[2].predeterminado, r.text);
+  r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'laptop' });
+  await reg.confirm(false);
+  check('micrófono: si dice que no, no cambia', st.mics[2].predeterminado && !st.mics[0].predeterminado);
+  r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'mezcla estereo' });
+  check('micrófono: la mezcla estéreo nunca se ofrece', !r.ok && !r.pending, r.text);
+  r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'usb' });
+  check('micrófono: si ya es el predeterminado → FALLÓ', !r.ok && !r.pending && /ya es/.test(r.text), r.text);
+  const idOriginal = st.mics[1].id; st.mics[1].id = 'x; calc.exe';
+  r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'corsair' });
+  check('micrófono: un identificador raro nunca llega a PowerShell', !r.ok && !r.pending, r.text);
+  st.mics[1].id = idOriginal;
+  st.devs[0].predeterminado = true; st.devs[1].predeterminado = false; st.devs[2].predeterminado = false;
+  r = await reg.invoke('audio_en_uso', {});
+  check('audio_en_uso: dice salida y entrada con nombres amigables', r.ok && r.verified && /Salida en uso: los parlantes de la laptop, volumen 40%/.test(r.mensaje) && /Entrada en uso: /.test(r.mensaje) && /USB Audio Device/.test(r.text), r.text);
+  r = await reg.invoke('audio_en_uso', { cual: 'entrada' });
+  check('audio_en_uso: si solo preguntan por la entrada, solo contesta la entrada', r.ok && /Entrada en uso/.test(r.mensaje) && !/Salida/.test(r.mensaje), r.text);
+  r = await reg.invoke('audio_en_uso', { cual: 'salida' });
+  check('audio_en_uso: si solo preguntan por la salida, solo contesta la salida', r.ok && /Salida en uso/.test(r.mensaje) && !/Entrada/.test(r.mensaje), r.text);
 
   const srcCtl = fs.readFileSync(path.join(__dirname, 'native', 'audio-control.ps1'), 'utf8');
   const srcLect = fs.readFileSync(path.join(__dirname, 'native', 'audio.ps1'), 'utf8');
