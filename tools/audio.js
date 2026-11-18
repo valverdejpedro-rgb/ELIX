@@ -7,7 +7,7 @@ async function leerAudio(bridge, direccion) {
   try { return JSON.parse(r && r.json); } catch { throw new Error('Windows devolvió datos de audio que no pude entender.'); }
 }
 
-const { categoriaEntrada, categoriaSalida, ETIQUETA_ENTRADA, ETIQUETA_SALIDA } = require('./audio-nombres');
+const { clasificarEntradas, categoriaSalida, ETIQUETA_ENTRADA, ETIQUETA_SALIDA } = require('./audio-nombres');
 
 function registerAudio(registry, bridge) {
   const ESTADO = { 0: 'inactiva', 1: 'activa' };
@@ -54,9 +54,9 @@ function registerAudio(registry, bridge) {
         const def = devs.find((x) => x.predeterminado);
         const titulo = dir === 'salida' ? 'Salida' : 'Entrada';
         if (!def) { partes.push(`${titulo}: Windows no muestra ningún dispositivo activo`); continue; }
-        const cat = dir === 'salida' ? categoriaSalida(def.nombre) : categoriaEntrada(def.nombre);
+        const cat = dir === 'salida' ? categoriaSalida(def.nombre) : clasificarEntradas(devs).get(def);
         const etiqueta = (dir === 'salida' ? ETIQUETA_SALIDA : ETIQUETA_ENTRADA)[cat];
-        const quien = etiqueta || def.nombre || 'un dispositivo sin nombre';
+        const quien = etiqueta || (def.nombre ? `«${def.nombre}»` : 'un dispositivo sin nombre');
         partes.push(`${titulo} en uso: ${quien}${def.volumen == null ? '' : ', volumen ' + def.volumen + '%'}${def.silenciado ? ', silenciado' : ''}`);
         nombres.push(`${titulo}: «${def.nombre || '(sin nombre)'}»`);
       }

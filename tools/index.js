@@ -18,7 +18,9 @@ const memoria = require('./memoria')(registry); // etapa 4: memoria permanente (
 module.exports = {
   init: ({ logFile, dataDir } = {}) => {
     registry.setLogFile(logFile || null);
-    memoria.setDir(dataDir || (logFile ? require('path').dirname(logFile) : null)); // memoria.json vive junto al registro de acciones
+    const dd = dataDir || (logFile ? require('path').dirname(logFile) : null);
+    memoria.setDir(dd); // memoria.json vive junto al registro de acciones
+    require('./audio-nombres').setDir(dd); // dispositivos-audio.json (qué micrófono es cuál) también
   },
   catalog: () => registry.catalog(),
   run: (name, args) => registry.invoke(name, args),

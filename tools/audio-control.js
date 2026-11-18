@@ -4,7 +4,7 @@
 // Siempre se resuelve primero qué app o dispositivo es (plan); si hay duda, no se hace nada y se pregunta.
 // Después de actuar se vuelve a leer Windows para comprobar que quedó así (VERIFICADO).
 const { leerAudio } = require('./audio');
-const { categoriaEntrada, ETIQUETA_ENTRADA, decirMicrofono } = require('./audio-nombres');
+const { clasificarEntradas, ETIQUETA_ENTRADA, ROLES_ENTRADA, decirMicrofono, leerAlias, guardarAlias } = require('./audio-nombres');
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 const ALIAS_APP = { 'google chrome': 'chrome', 'microsoft edge': 'msedge', edge: 'msedge', sistema: 'sonidos del sistema', sonidos: 'sonidos del sistema' };
@@ -145,51 +145,93 @@ module.exports = function registerAudioControl(registry, bridge) {
   });
 
   // Micrófonos (dispositivo de ENTRADA): mismo mecanismo y mismas garantías que la salida (plan → confirmación por voz → cambio → verificación)
+  const leerMics = async () => {
+    const d = await leerAudio(bridge, 'entrada');
+    const todos = d.dispositivos || [];
+    const mapa = clasificarEntradas(todos);
+    return { todos, mapa, devs: todos.filter((x) => mapa.get(x) !== 'mezcla') }; // la «mezcla estéreo» no es un micrófono
+  };
+  const listaMics = (devs) => devs.map((x) => `«${x.nombre}»`).join(', ');
+
   registry.register({
     name: 'audio_cambiar_microfono',
     risk: 'confirm',
-    description: 'Cambia el MICRÓFONO (dispositivo de ENTRADA de audio) predeterminado del PC. Hay tres destinos habituales: el micrófono de la laptop (dispositivo: laptop), un micrófono externo, USB o de conector (dispositivo: externo) y el micrófono de los audífonos inalámbricos o Corsair (dispositivo: auriculares). También acepta parte del nombre del micrófono. Úsala cuando pidan “pasa al micrófono de la laptop”, “usa el micrófono externo” o “usa el micrófono de los audífonos/Corsair”. Para cambiar la SALIDA (parlantes o auriculares) usa audio_cambiar_dispositivo.',
+    description: 'Cambia el MICRÓFONO (dispositivo de ENTRADA de audio) predeterminado del PC. Hay tres destinos habituales: el micrófono de la laptop (dispositivo: laptop), el micrófono externo o USB (dispositivo: externo) y el micrófono de los audífonos inalámbricos o Corsair (dispositivo: auriculares). También acepta parte del nombre del micrófono. Úsala cuando pidan “pasa al micrófono de la laptop”, “usa el micrófono externo” o “usa el micrófono de los audífonos/Corsair”. Para cambiar la SALIDA (parlantes o auriculares) usa audio_cambiar_dispositivo.',
     schema: {
-      properties: { dispositivo: { type: 'string', maxLength: 80, description: 'laptop (micrófono de la laptop), externo (USB o de conector), auriculares (audífonos inalámbricos o Corsair), o parte del nombre del micrófono' } },
+      properties: { dispositivo: { type: 'string', maxLength: 80, description: 'laptop (micrófono de la laptop), externo (USB), auriculares (audífonos inalámbricos o Corsair), o parte del nombre del micrófono' } },
       required: ['dispositivo'],
     },
     async plan(a) {
-      let d;
-      try { d = await leerAudio(bridge, 'entrada'); } catch (e) { return { fail: 'No pude leer el audio de Windows: ' + e.message }; }
-      const todos = d.dispositivos || [];
-      const devs = todos.filter((x) => categoriaEntrada(x.nombre) !== 'mezcla'); // la «mezcla estéreo» no es un micrófono
+      let m;
+      try { m = await leerMics(); } catch (e) { return { fail: 'No pude leer el audio de Windows: ' + e.message }; }
+      const { todos, mapa, devs } = m;
       if (!devs.length) return { fail: 'Windows no muestra ningún micrófono activo.' };
       const q = norm(a.dispositivo);
       if (!q) return { fail: 'Dime a qué micrófono.' };
-      const nombres = devs.map((x) => x.nombre).join(', ');
       let cat = null;
       if (/inalambric|wireless|bluetooth|corsair|airpods|buds|auricular|audifono|headset|casco|diadema/.test(q)) cat = 'auriculares';
       else if (/laptop|portatil|integrad|interno|compu|\bpc\b|array|matriz/.test(q)) cat = 'laptop';
       else if (/externo|usb|jack|conector|afuera/.test(q)) cat = 'externo';
       let match;
       if (cat) {
-        match = devs.filter((x) => categoriaEntrada(x.nombre) === cat);
-        if (!match.length) return { fail: `No encuentro ${cat === 'externo' ? 'un micrófono externo' : ETIQUETA_ENTRADA[cat]} entre los micrófonos activos. Windows solo muestra los que están conectados y encendidos. Ahora veo: ${nombres}.` };
+        match = devs.filter((x) => mapa.get(x) === cat);
+        if (!match.length) return { fail: `No tengo identificado ${ETIQUETA_ENTRADA[cat]}. Los micrófonos activos son: ${listaMics(devs)}. Dime cuál es, por ejemplo: «el micrófono Realtek es el de la laptop», y lo recordaré. (Windows solo muestra los micrófonos que están conectados y encendidos.)` };
       } else {
         match = devs.filter((x) => norm(x.nombre).includes(q));
-        if (!match.length) return { fail: `No encuentro un micrófono llamado «${a.dispositivo}». Los activos son: ${nombres}.` };
+        if (!match.length) return { fail: `No encuentro un micrófono llamado «${a.dispositivo}». Los activos son: ${listaMics(devs)}.` };
       }
       if (match.length > 1) return { clarify: { motivo: `«${a.dispositivo}» coincide con varios micrófonos.`, opciones: match.map((x) => x.nombre) } };
       const dest = match[0];
       const actual = todos.find((x) => x.predeterminado);
-      if (dest.predeterminado) return { fail: `${decirMicrofono(dest)} ya es el micrófono predeterminado.` };
+      if (dest.predeterminado) return { fail: `${decirMicrofono(dest, mapa)} ya es el micrófono predeterminado.` };
       if (!ID_RE.test(String(dest.id))) return { fail: 'Windows dio un identificador de dispositivo que no reconozco; no cambio nada.' };
-      return { resolved: { id: dest.id, nombre: decirMicrofono(dest), anterior: actual ? decirMicrofono(actual) : '' }, resumen: `Voy a cambiar el micrófono${actual ? ' de ' + decirMicrofono(actual) : ''} a ${decirMicrofono(dest)}` };
+      return { resolved: { id: dest.id, nombre: decirMicrofono(dest, mapa) }, resumen: `Voy a cambiar el micrófono${actual ? ' de ' + decirMicrofono(actual, mapa) : ''} a ${decirMicrofono(dest, mapa)}` };
     },
     async run(a, r) {
       if (!ID_RE.test(String(r.id))) return { ok: false, mensaje: 'Identificador de dispositivo no válido.' };
       try { await bridge.request('audio.dispositivo', { id: r.id }, { module: 'audio-control', timeout: 30000 }); }
       catch (e) { return { ok: false, mensaje: 'No pude cambiar el micrófono: ' + e.message + ' No se cambió nada.' }; }
-      let d2;
-      try { d2 = await leerAudio(bridge, 'entrada'); } catch { return { ok: true, verified: false, mensaje: `Pedí cambiar a ${r.nombre}, pero no pude comprobar el resultado.` }; }
-      const def = (d2.dispositivos || []).find((x) => x.predeterminado);
+      let m;
+      try { m = await leerMics(); } catch { return { ok: true, verified: false, mensaje: `Pedí cambiar a ${r.nombre}, pero no pude comprobar el resultado.` }; }
+      const def = m.todos.find((x) => x.predeterminado);
       if (def && def.id === r.id) return { ok: true, verified: true, mensaje: `Listo: el micrófono ahora es ${r.nombre}.` };
-      return { ok: true, verified: false, mensaje: `Pedí cambiar a ${r.nombre}, pero Windows sigue mostrando ${def ? decirMicrofono(def) : 'otro micrófono'} como predeterminado.` };
+      return { ok: true, verified: false, mensaje: `Pedí cambiar a ${r.nombre}, pero Windows sigue mostrando ${def ? decirMicrofono(def, m.mapa) : 'otro micrófono'} como predeterminado.` };
+    },
+  });
+
+  // Enseñarle cuál micrófono es cuál (solo guarda una etiqueta en dispositivos-audio.json; no cambia el audio)
+  registry.register({
+    name: 'audio_asignar_microfono',
+    risk: 'safe',
+    description: 'ENSEÑA a Radex cuál micrófono es cuál; no cambia el audio, solo guarda una etiqueta. Úsala cuando el usuario diga qué micrófono es cada uno: “el micrófono Realtek es el de la laptop”, “el USB es el externo”, “el Corsair es el de los audífonos”. rol: laptop, externo o auriculares (audífonos inalámbricos o Corsair). dispositivo: parte del nombre que Windows le da al micrófono. Si no sabe los nombres, primero usa audio_estado con direccion entrada para listarlos.',
+    schema: {
+      properties: {
+        dispositivo: { type: 'string', maxLength: 80, description: 'Parte del nombre del micrófono tal como lo llama Windows (por ejemplo realtek, usb, corsair)' },
+        rol: { type: 'string', enum: ['laptop', 'externo', 'auriculares'], description: 'laptop = integrado; externo = USB u otro externo; auriculares = audífonos inalámbricos o Corsair' },
+      },
+      required: ['dispositivo', 'rol'],
+    },
+    async plan(a) {
+      let m;
+      try { m = await leerMics(); } catch (e) { return { fail: 'No pude leer el audio de Windows: ' + e.message }; }
+      const q = norm(a.dispositivo);
+      if (!q) return { fail: 'Dime qué micrófono.' };
+      if (!ROLES_ENTRADA.includes(a.rol)) return { fail: 'El rol debe ser laptop, externo o auriculares.' };
+      const match = m.devs.filter((x) => norm(x.nombre).includes(q));
+      if (!match.length) return { fail: `No encuentro un micrófono llamado «${a.dispositivo}». Los activos son: ${listaMics(m.devs)}.` };
+      if (match.length > 1) return { clarify: { motivo: `«${a.dispositivo}» coincide con varios micrófonos.`, opciones: match.map((x) => x.nombre) } };
+      return { resolved: { id: String(match[0].id || ''), nombre: match[0].nombre, rol: a.rol }, resumen: `${a.rol}: ${match[0].nombre}` };
+    },
+    async run(a, r) {
+      try {
+        const otros = leerAlias().filter((x) => x.rol !== r.rol && !(x.id && x.id === r.id) && norm(x.nombre) !== norm(r.nombre)); // un micrófono por rol
+        guardarAlias([...otros, { rol: r.rol, nombre: r.nombre, id: ID_RE.test(r.id) ? r.id : '' }]);
+      } catch (e) { return { ok: false, mensaje: 'No pude guardarlo: ' + e.message }; }
+      let m;
+      try { m = await leerMics(); } catch { return { ok: true, verified: false, mensaje: `Guardé «${r.nombre}» como ${ETIQUETA_ENTRADA[r.rol]}, pero no pude comprobarlo.` }; }
+      const dev = m.devs.find((x) => norm(x.nombre) === norm(r.nombre));
+      if (dev && m.mapa.get(dev) === r.rol) return { ok: true, verified: true, mensaje: `Listo: «${r.nombre}» queda registrado como ${ETIQUETA_ENTRADA[r.rol]}. Ya puedo cambiar a él cuando me lo pidas.` };
+      return { ok: true, verified: false, mensaje: `Guardé la etiqueta, pero no pude comprobar que «${r.nombre}» quede como ${ETIQUETA_ENTRADA[r.rol]}.` };
     },
   });
 };
