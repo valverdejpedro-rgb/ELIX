@@ -110,3 +110,10 @@ manteniendo el mismo nombre. También se puede decir "pon el avatar de mujer" po
 - Atajos: si dices la misma acción con otras palabras (la herramienta y los datos son los mismos), la suma como otra forma de decirla y ya no te vuelve a preguntar si la aprende.
 - «¿Qué atajos tienes?» los lista (los más usados) y «olvida el atajo …» borra uno (ambos se resuelven al instante, sin cerebro).
 
+## Micrófono completo y «volver al de antes» (v1.0.38)
+- Nueva herramienta `audio_microfono_volumen`: «silencia el micrófono», «activa el micrófono», «sube/baja el micrófono», «pon el micrófono al 80».
+  Actúa sobre el micrófono que está en uso y lo comprueba en Windows. Silenciarlo así lo silencia para TODAS las aplicaciones (Discord, Zoom, navegador…); los botones de silencio de cada app no se enteran.
+- Nueva herramienta `audio_volver_anterior`: «regrésame al micrófono de antes» / «vuelve a los altavoces de antes». Recuerda el último cambio de salida y de micrófono mientras Radex siga abierto; pedirlo otra vez te lleva de regreso.
+- Nuevo comando de PowerShell `audio.nivel_dispositivo` (volumen/silencio de un dispositivo). Al correr `node selftest.js` en Windows se comprueba que compila.
+- No incluido a propósito: elegir un dispositivo distinto para una sola app (Spotify a unos audífonos y Chrome a otros). Windows lo hace con una interfaz no documentada que cambia entre versiones y no se puede probar sin romper algo; se hace desde Configuración > Sistema > Sonido > Mezclador de volumen.
+

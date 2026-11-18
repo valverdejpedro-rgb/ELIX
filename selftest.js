@@ -202,6 +202,14 @@ async function audioControlTests() {
         for (const d of lista) d.predeterminado = d.id === args.id;
         return { ok: true };
       }
+      if (cmd === 'audio.nivel_dispositivo') {
+        if (rechazar) throw new Error('Windows rechazó el cambio');
+        const dv = [...st.mics, ...st.devs].find((d) => d.id === args.id);
+        if (!dv) throw new Error('Windows no encontró ese dispositivo.');
+        if (args.nivel >= 0) dv.volumen = args.nivel;
+        if (args.silencio >= 0) dv.silenciado = args.silencio === 1;
+        return { ok: true };
+      }
       throw new Error('comando inesperado ' + cmd);
     },
   };
@@ -323,9 +331,62 @@ async function audioControlTests() {
   await reg.invoke('audio_asignar_microfono', { dispositivo: 'chip raro', rol: 'laptop' });
   check('enseñar de nuevo un rol reemplaza al anterior (no se duplica)', anm.leerAlias().filter((x) => x.rol === 'laptop').length === 1);
 
+  // Volumen y silencio del micrófono en uso, y volver al dispositivo de antes
+  for (const m of st.mics) m.predeterminado = false;
+  st.mics[0].predeterminado = true; st.mics[0].volumen = 80; st.mics[0].silenciado = false;
+  const c4 = cambios();
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'bajar' });
+  check('micrófono: baja el volumen 10 puntos y lo verifica', r.ok && r.verified && st.mics[0].volumen === 70 && /70%/.test(r.mensaje) && /antes 80%/.test(r.mensaje), r.text);
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'subir', paso: 50 });
+  check('micrófono: subir nunca pasa de 100', r.verified && st.mics[0].volumen === 100, String(st.mics[0].volumen));
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'establecer', porcentaje: 35 });
+  check('micrófono: lo deja en 35 %', r.verified && st.mics[0].volumen === 35, r.text);
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'silenciar' });
+  check('micrófono: silenciar lo verifica y no toca el volumen', r.verified && st.mics[0].silenciado === true && st.mics[0].volumen === 35 && /silenciado/.test(r.mensaje), r.text);
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'activar_sonido' });
+  check('micrófono: activar el sonido', r.verified && st.mics[0].silenciado === false && /activado otra vez/.test(r.mensaje), r.text);
+  const cNiv = cambios();
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'establecer' });
+  check('micrófono: establecer sin porcentaje → FALLÓ', !r.ok, r.text);
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'establecer', porcentaje: 150 });
+  check('micrófono: porcentaje fuera de 0-100 → rechazado', !r.ok);
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'explotar' });
+  check('micrófono: acción no permitida → rechazada', !r.ok);
+  rechazar = true;
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'bajar' });
+  check('micrófono: si Windows rechaza el cambio → FALLÓ', !r.ok && st.mics[0].volumen === 35, r.text);
+  rechazar = false;
+  const volAntes = st.mics[0].volumen, idUso = st.mics[0].id; st.mics[0].id = 'x; calc.exe';
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'bajar' });
+  check('micrófono: un identificador raro nunca llega a PowerShell', !r.ok && st.mics[0].volumen === volAntes, r.text);
+  st.mics[0].id = idUso;
+
+  const regN = createRegistry(); require('./tools/audio-control')(regN, bridge);
+  r = await regN.invoke('audio_volver_anterior', { cual: 'entrada' });
+  check('volver al anterior: si no hay ninguno guardado lo dice y no cambia nada', !r.ok && /No tengo guardado/.test(r.text), r.text);
+  r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'corsair' });
+  check('(preparación) cambia al Corsair', r.verified && st.mics[1].predeterminado, r.text);
+  r = await reg.invoke('audio_volver_anterior', { cual: 'entrada' });
+  check('volver al anterior: el micrófono de antes (laptop), directo y verificado', r.ok && r.verified && st.mics[0].predeterminado && /Se ha vuelto a micrófono de la laptop\./.test(r.text), r.text);
+  r = await reg.invoke('audio_volver_anterior', { cual: 'entrada' });
+  check('volver al anterior otra vez te lleva de regreso (Corsair)', r.verified && st.mics[1].predeterminado && /audífonos inalámbricos CORSAIR/.test(r.text), r.text);
+  const c5 = cambios();
+  st.mics[0].activo = false;
+  const copia = st.mics.splice(0, 1)[0]; // la laptop «desaparece» (desconectada)
+  r = await reg.invoke('audio_volver_anterior', { cual: 'entrada' });
+  check('volver al anterior: si ya no está conectado → FALLÓ y no cambia nada', !r.ok && /Ya no veo/.test(r.text) && cambios() === c5, r.text);
+  st.mics.unshift(copia);
+  r = await reg.invoke('audio_volver_anterior', { cual: 'salida' });
+  check('volver al anterior (salida): regresa al dispositivo de antes', r.ok && r.verified && /Se ha vuelto a /.test(r.text), r.text);
+  r = await reg.invoke('audio_volver_anterior', { cual: 'altavoz' });
+  check('volver al anterior: valor no permitido → rechazado', !r.ok);
+
   const srcCtl = fs.readFileSync(path.join(__dirname, 'native', 'audio-control.ps1'), 'utf8');
   const srcLect = fs.readFileSync(path.join(__dirname, 'native', 'audio.ps1'), 'utf8');
   check('ningún módulo declara clases COM con "new" (chocarían entre sí al cargarse los dos)', !/new\s+(MMDeviceEnumeratorCom|PolicyConfigClient)\s*\(/.test(srcLect + srcCtl) && !/class\s+(MMDeviceEnumeratorCom|PolicyConfigClient)/.test(srcLect + srcCtl));
+  const blq = (srcCtl.match(/interface IAudioEndpointVolume[\s\S]*?\n    }/) || [''])[0];
+  check('audio-control.ps1: IAudioEndpointVolume tiene los 13 métodos en orden (SetMasterVolumeLevelScalar es el 5.º y SetMute el 12.º)', (blq.match(/\[PreserveSig\]/g) || []).length === 13 && blq.split('[PreserveSig]')[5].includes('SetMasterVolumeLevelScalar') && blq.split('[PreserveSig]')[12].includes('SetMute'));
+  check('audio-control.ps1 define audio.nivel_dispositivo con valores validados', /ELIX_H\['audio\.nivel_dispositivo'\]/.test(srcCtl) && /nivel < -1 \|\| nivel > 100/.test(srcCtl));
   check('audio-control.ps1 no ejecuta programas ni descarga nada', !/Start-Process|Invoke-Expression|iex |Invoke-WebRequest|DownloadString|cmd\.exe|powershell\.exe/i.test(srcCtl));
 }
 
@@ -392,6 +453,8 @@ async function windowsAudioTests() {
     const cc = await br.request('audio.control_ok', {}, { module: 'audio-control', timeout: 30000 });
     check(`el módulo de control compila (${Date.now() - t2} ms)`, typeof cc.politica === 'string');
     check('Windows ofrece el cambio de dispositivo', cc.politica === 'ok', cc.politica);
+    const sinNivel = await br.request('audio.nivel_dispositivo', { id: 'x', nivel: -1, silencio: -1 }, { module: 'audio-control' });
+    check('audio.nivel_dispositivo compila y sin nivel ni silencio no toca nada', sinNivel.ok === true, JSON.stringify(sinNivel));
     const nada = await br.request('audio.app', { pids: [], nivel: -1, silencio: -1 }, { module: 'audio-control' });
     check('audio.app sin sesiones no toca nada', nada.afectadas === 0);
     console.log(`     ${m.dispositivos.length} micrófono(s)`);
