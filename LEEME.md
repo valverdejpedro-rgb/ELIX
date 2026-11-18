@@ -102,3 +102,11 @@ manteniendo el mismo nombre. También se puede decir "pon el avatar de mujer" po
   Si no sabes cómo los llama Windows, pregunta «¿qué micrófonos tengo?» y te los lista. Se guarda en `dispositivos-audio.json` (junto a `atajos.json`) y entra en la copia de seguridad.
 - Si pides «el micrófono de la laptop» y no lo tiene identificado, ya no se queda en silencio: te dice los micrófonos que ve y cómo enseñárselo.
 
+## Cambios de audio directos y atajos sin repetir preguntas (v1.0.37)
+- Cambiar la salida (altavoces/auriculares) o el micrófono YA NO pide confirmación: lo hace, lo comprueba en Windows y dice una frase corta, sin pasar otra vez por el cerebro (más rápido):
+  «Se ha cambiado a altavoces de la laptop», «…a altavoces externos», «…a audífonos inalámbricos CORSAIR», «…a micrófono de la laptop», «…a micrófono externo ETHOS 101».
+  Si ya estaba en ese dispositivo dice «Ya estás usando …». (La memoria al olvidar y otras acciones de riesgo siguen pidiendo confirmación.)
+- «¿Qué audio de salida / de entrada tengo en uso?» contesta con esos mismos nombres directos.
+- Atajos: si dices la misma acción con otras palabras (la herramienta y los datos son los mismos), la suma como otra forma de decirla y ya no te vuelve a preguntar si la aprende.
+- «¿Qué atajos tienes?» los lista (los más usados) y «olvida el atajo …» borra uno (ambos se resuelven al instante, sin cerebro).
+

@@ -240,65 +240,63 @@ async function audioControlTests() {
   check('si Windows no toca ninguna sesión → FALLÓ', !r.ok, r.text);
   rechazar = false;
 
-  // Cambio de dispositivo (con confirmación)
+  // Cambio de dispositivo (directo, sin pedir confirmación)
   const c1 = cambios();
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'altavoces' });
-  check('cambiar de dispositivo queda PENDIENTE y no cambia nada', !!r.pending && /Altavoces/.test(r.text) && /Auriculares/.test(r.text) && cambios() === c1, r.text);
-  r = await reg.confirm(false);
-  check('si dice que no, no cambia', r.cancelled && cambios() === c1 && st.devs[1].predeterminado);
-  await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'parlantes' });
-  r = await reg.confirm(true);
-  check('al confirmar cambia y verifica (alias "parlantes")', r.ok && r.verified && st.devs[0].predeterminado && !st.devs[1].predeterminado && /Altavoces/.test(r.mensaje), r.text);
+  check('cambiar de dispositivo se hace directo (sin confirmación) y se verifica', r.ok && r.verified && !r.pending && st.devs[0].predeterminado && !st.devs[1].predeterminado && cambios() === c1 + 1, r.text);
+  check('dice «Se ha cambiado a altavoces de la laptop.»', /^VERIFICADO: Se ha cambiado a altavoces de la laptop\./.test(r.text), r.text);
+  r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'auriculares' });
+  check('auriculares con cable → «Se ha cambiado a altavoces externos.»', r.verified && st.devs[1].predeterminado && /Se ha cambiado a altavoces externos\./.test(r.text), r.text);
+  r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'parlantes' });
+  check('alias "parlantes" → laptop', r.verified && st.devs[0].predeterminado && !st.devs[1].predeterminado, r.text);
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'altavoces' });
-  check('si ya es el predeterminado → FALLÓ y no pide confirmar', !r.ok && !r.pending && /ya es/.test(r.text), r.text);
+  check('si ya es el predeterminado → FALLÓ «Ya estás usando …» y no cambia nada', !r.ok && /Ya estás usando altavoces de la laptop/.test(r.text) && cambios() === c1 + 3, r.text);
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'realtek' });
-  check('nombre ambiguo → AMBIGUO y no deja nada pendiente', r.clarify && !reg.hasPending(), r.text);
+  check('nombre ambiguo → AMBIGUO y no cambia nada', r.clarify && /AMBIGUO/.test(r.text) && cambios() === c1 + 3, r.text);
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'bluetooth' });
   check('dispositivo inexistente → FALLÓ con la lista', !r.ok && /Altavoces/.test(r.text), r.text);
-  await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'hdmi' });
-  await sleep(550);
-  const c2 = cambios();
-  r = await reg.confirm(true);
-  check('confirmación vencida → no cambia de dispositivo', r.expired && cambios() === c2 && st.devs[0].predeterminado);
-  await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'hdmi' });
   rechazar = true;
-  r = await reg.confirm(true);
-  check('si Windows rechaza el cambio → FALLÓ y dice que no se cambió nada', !r.ok && /No se cambió nada/.test(r.text), r.text);
+  r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'hdmi' });
+  check('si Windows rechaza el cambio → FALLÓ y dice que no se cambió nada', !r.ok && /No se cambió nada/.test(r.text) && st.devs[0].predeterminado, r.text);
   rechazar = false;
   st.devs[2].id = 'x; calc.exe';
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'hdmi' });
-  check('un identificador de dispositivo raro nunca llega a PowerShell', !r.ok && !r.pending, r.text);
+  check('un identificador de dispositivo raro nunca llega a PowerShell', !r.ok, r.text);
 
-  // Micrófonos (entrada) y «qué tengo en uso»
+  // Micrófonos (entrada): cambio directo y «qué tengo en uso»
   rechazar = false;
   const c3 = cambios();
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'laptop' });
-  check('micrófono: si ya es el de la laptop → FALLÓ y no pide confirmar', !r.ok && !r.pending && /ya es/.test(r.text), r.text);
+  check('micrófono: si ya es el de la laptop → FALLÓ «Ya estás usando micrófono de la laptop»', !r.ok && /Ya estás usando micrófono de la laptop/.test(r.text) && cambios() === c3, r.text);
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'audífonos inalámbricos' });
-  check('micrófono: cambiar a audífonos queda PENDIENTE y no cambia nada', !!r.pending && /audífonos/.test(r.text) && cambios() === c3 && st.mics[0].predeterminado, r.text);
-  r = await reg.confirm(true);
-  check('micrófono: al confirmar pasa al Corsair y lo verifica', r.ok && r.verified && st.mics[1].predeterminado && !st.mics[0].predeterminado, r.text);
+  check('micrófono: a los audífonos se hace directo → «audífonos inalámbricos CORSAIR»', r.ok && r.verified && !r.pending && st.mics[1].predeterminado && !st.mics[0].predeterminado && /Se ha cambiado a audífonos inalámbricos CORSAIR\./.test(r.text), r.text);
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'externo' });
-  r = await reg.confirm(true);
-  check('micrófono: «externo» elige el USB (no el de la laptop, ni el Corsair, ni la mezcla estéreo)', r.verified && st.mics[2].predeterminado, r.text);
+  check('micrófono: «externo» elige el USB (no la laptop, ni el Corsair, ni la mezcla) → «micrófono externo»', r.verified && st.mics[2].predeterminado && /Se ha cambiado a micrófono externo\./.test(r.text), r.text);
+  st.mics[2].nombre = 'Micrófono (ETHOS 101)';
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'laptop' });
-  await reg.confirm(false);
-  check('micrófono: si dice que no, no cambia', st.mics[2].predeterminado && !st.mics[0].predeterminado);
+  check('micrófono: la laptop → «micrófono de la laptop»', r.verified && st.mics[0].predeterminado && /Se ha cambiado a micrófono de la laptop\./.test(r.text), r.text);
+  r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'externo' });
+  check('micrófono: externo con modelo → «micrófono externo ETHOS 101»', r.verified && st.mics[2].predeterminado && /Se ha cambiado a micrófono externo ETHOS 101\./.test(r.text), r.text);
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'mezcla estereo' });
   check('micrófono: la mezcla estéreo nunca se ofrece', !r.ok && !r.pending, r.text);
-  r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'usb' });
-  check('micrófono: si ya es el predeterminado → FALLÓ', !r.ok && !r.pending && /ya es/.test(r.text), r.text);
+  r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'externo' });
+  check('micrófono: si ya es el predeterminado → FALLÓ «Ya estás usando …»', !r.ok && /Ya estás usando micrófono externo ETHOS 101/.test(r.text), r.text);
   const idOriginal = st.mics[1].id; st.mics[1].id = 'x; calc.exe';
+  const c3b = cambios();
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'corsair' });
-  check('micrófono: un identificador raro nunca llega a PowerShell', !r.ok && !r.pending, r.text);
+  check('micrófono: un identificador raro nunca llega a PowerShell', !r.ok && cambios() === c3b, r.text);
   st.mics[1].id = idOriginal;
+  st.mics[2].nombre = 'Micrófono (USB Audio Device)';
   st.devs[0].predeterminado = true; st.devs[1].predeterminado = false; st.devs[2].predeterminado = false;
   r = await reg.invoke('audio_en_uso', {});
-  check('audio_en_uso: dice salida y entrada con nombres amigables', r.ok && r.verified && /Salida en uso: los parlantes de la laptop, volumen 40%/.test(r.mensaje) && /Entrada en uso: /.test(r.mensaje) && /USB Audio Device/.test(r.text), r.text);
+  check('audio_en_uso: dice salida y entrada con nombres directos', r.ok && r.verified && /Salida en uso: altavoces de la laptop, volumen 40%/.test(r.mensaje) && /Entrada en uso: micrófono externo, volumen 70%/.test(r.mensaje) && /USB Audio Device/.test(r.text), r.text);
   r = await reg.invoke('audio_en_uso', { cual: 'entrada' });
   check('audio_en_uso: si solo preguntan por la entrada, solo contesta la entrada', r.ok && /Entrada en uso/.test(r.mensaje) && !/Salida/.test(r.mensaje), r.text);
   r = await reg.invoke('audio_en_uso', { cual: 'salida' });
   check('audio_en_uso: si solo preguntan por la salida, solo contesta la salida', r.ok && /Salida en uso/.test(r.mensaje) && !/Entrada/.test(r.mensaje), r.text);
+  const nm = require('./tools/audio-nombres');
+  check('nombres: audífonos Corsair → «audífonos inalámbricos CORSAIR» (salida y entrada)', nm.etiquetaSalida({ nombre: 'Altavoces (CORSAIR HS80 RGB WIRELESS Gaming Receiver)' }) === 'audífonos inalámbricos CORSAIR');
+  check('nombres: modelo del micrófono externo', nm.modeloDe('Micrófono (ETHOS 101)') === 'ETHOS 101' && nm.modeloDe('Micrófono (USB Audio Device)') === '' && nm.modeloDe('Microphone (USB PnP Sound Device)') === '');
 
   // Nombres que Windows pone y no se reconocen: por descarte, y enseñándolos
   const anm = require('./tools/audio-nombres');
@@ -307,8 +305,8 @@ async function audioControlTests() {
   st.mics[2].predeterminado = true;
   st.mics[0].nombre = 'Conjunto de dispositivos (Chip Raro)';
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'laptop' });
-  check('micrófono: si el interno tiene un nombre raro, se deduce por descarte (USB y Corsair ya conocidos)', !!r.pending && /laptop/.test(r.text), r.text);
-  await reg.confirm(false);
+  check('micrófono: si el interno tiene un nombre raro, se deduce por descarte (USB y Corsair ya conocidos)', r.verified && st.mics[0].predeterminado && /micrófono de la laptop/.test(r.text), r.text);
+  st.mics[0].predeterminado = false; st.mics[2].predeterminado = true;
   st.mics[2].nombre = 'Microphone (Modelo X)';
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'laptop' });
   check('micrófono: con dos sin reconocer no adivina: lista los micrófonos y explica cómo enseñarle', !r.ok && !r.pending && /Chip Raro/.test(r.text) && /Modelo X/.test(r.text) && /es el de la laptop/.test(r.text), r.text);
@@ -317,9 +315,7 @@ async function audioControlTests() {
   r = await reg.invoke('audio_asignar_microfono', { dispositivo: 'modelo x', rol: 'externo' });
   check('audio_asignar_microfono: también el externo', r.ok && r.verified, r.text);
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'laptop' });
-  check('después de enseñarle, «laptop» ya se encuentra', !!r.pending, r.text);
-  r = await reg.confirm(true);
-  check('...y el cambio queda verificado', r.verified && st.mics[0].predeterminado, r.text);
+  check('después de enseñarle, «laptop» ya se encuentra y cambia', r.verified && st.mics[0].predeterminado, r.text);
   check('lo enseñado queda guardado en el archivo (uno por rol)', anm.leerAlias().length === 2);
   r = await reg.invoke('audio_asignar_microfono', { dispositivo: 'r', rol: 'laptop' });
   check('audio_asignar_microfono: nombre que coincide con varios → pregunta cuál, no guarda', !r.ok && !r.pending && anm.leerAlias().length === 2, r.text);
