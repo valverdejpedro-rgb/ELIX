@@ -4,7 +4,8 @@
 #
 # Comandos que añade al worker:
 #   audio.app          { pids:[int], nivel:int(-1 = no tocar, 0-100), silencio:int(-1 = no tocar, 0/1) } -> { afectadas }
-#   audio.dispositivo  { id:string }   (cambia la salida predeterminada, en los 3 roles)  -> { ok }
+#   audio.dispositivo  { id:string }   (cambia la salida o el micrófono predeterminado, en los 3 roles)  -> { ok }
+#   audio.nivel_dispositivo { id:string, nivel:int(-1 = no tocar, 0-100), silencio:int(-1 = no tocar, 0/1) }  (volumen/silencio de un dispositivo, p. ej. el micrófono)  -> { ok }
 #   audio.control_ok   {}              (comprueba que el módulo compila y que Windows ofrece IPolicyConfig; no cambia nada)
 # La app (tools/audio-control.js) valida los datos y VERIFICA el resultado releyendo el audio.
 
@@ -96,10 +97,30 @@ namespace ElixCtl
         [PreserveSig] int Reservado11(IntPtr a, int b);                   // SetEndpointVisibility
     }
 
+    // Volumen y silencio de un dispositivo completo (mismo orden de métodos que en audio.ps1; aquí sí se usan SetMasterVolumeLevelScalar y SetMute).
+    [ComImport, Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    public interface IAudioEndpointVolume
+    {
+        [PreserveSig] int Reservado1(IntPtr a);                 // RegisterControlChangeNotify
+        [PreserveSig] int Reservado2(IntPtr a);                 // UnregisterControlChangeNotify
+        [PreserveSig] int Reservado3(out uint a);               // GetChannelCount
+        [PreserveSig] int Reservado4(float a, IntPtr b);        // SetMasterVolumeLevel
+        [PreserveSig] int SetMasterVolumeLevelScalar(float level, ref Guid eventContext);
+        [PreserveSig] int Reservado5(out float a);              // GetMasterVolumeLevel
+        [PreserveSig] int Reservado6(out float a);              // GetMasterVolumeLevelScalar
+        [PreserveSig] int Reservado7(uint a, float b, IntPtr c); // SetChannelVolumeLevel
+        [PreserveSig] int Reservado8(uint a, float b, IntPtr c); // SetChannelVolumeLevelScalar
+        [PreserveSig] int Reservado9(uint a, out float b);      // GetChannelVolumeLevel
+        [PreserveSig] int Reservado10(uint a, out float b);     // GetChannelVolumeLevelScalar
+        [PreserveSig] int SetMute([MarshalAs(UnmanagedType.Bool)] bool mute, ref Guid eventContext);
+        [PreserveSig] int GetMute([MarshalAs(UnmanagedType.Bool)] out bool mute);
+    }
+
     public static class ElixAudioCtl
     {
         const int E_RENDER = 0, E_CONSOLE = 0, STATE_ACTIVE = 1, CLSCTX_ALL = 23;
         static Guid IID_Sessions = new Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F");
+        static Guid IID_EndpointVolume = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
 
         // Se crea por CLSID (no con "new Clase()"): si dos módulos declaran la misma clase COM, Windows las confunde.
         static object Crear(string clsid) { return Activator.CreateInstance(Type.GetTypeFromCLSID(new Guid(clsid))); }
@@ -162,6 +183,27 @@ namespace ElixCtl
             }
         }
 
+        // Cambia el volumen y/o el silencio de un dispositivo (salida o micrófono) por su id.
+        // nivel: -1 = no tocar, 0-100. silencio: -1 = no tocar, 0 = quitar, 1 = silenciar.
+        public static void SetDevice(string id, int nivel, int silencio)
+        {
+            if (string.IsNullOrEmpty(id)) throw new Exception("Falta el dispositivo.");
+            if (nivel < -1 || nivel > 100) throw new Exception("Nivel de volumen no válido.");
+            if (silencio < -1 || silencio > 1) throw new Exception("Valor de silencio no válido.");
+            if (nivel < 0 && silencio < 0) return;
+            IMMDeviceEnumerator en = (IMMDeviceEnumerator)Crear("BCDE0395-E52F-467C-8E3D-C4579291692E");
+            IMMDevice d;
+            if (en.GetDevice(id, out d) != 0 || d == null) throw new Exception("Windows no encontró ese dispositivo.");
+            int st; d.GetState(out st);
+            if (st != STATE_ACTIVE) throw new Exception("Ese dispositivo no está activo.");
+            object o; Guid gv = IID_EndpointVolume;
+            if (d.Activate(ref gv, CLSCTX_ALL, IntPtr.Zero, out o) != 0 || o == null) throw new Exception("No pude abrir el control de volumen de ese dispositivo.");
+            IAudioEndpointVolume ev = (IAudioEndpointVolume)o;
+            Guid ctx = Guid.Empty;
+            if (nivel >= 0 && ev.SetMasterVolumeLevelScalar(nivel / 100.0f, ref ctx) != 0) throw new Exception("Windows rechazó el cambio de volumen.");
+            if (silencio >= 0 && ev.SetMute(silencio == 1, ref ctx) != 0) throw new Exception("Windows rechazó el cambio de silencio.");
+        }
+
         // No cambia nada: solo comprueba que Windows ofrece la interfaz para cambiar de dispositivo.
         public static string CheckPolicy()
         {
@@ -184,6 +226,12 @@ $global:ELIX_H['audio.app'] = {
 $global:ELIX_H['audio.dispositivo'] = {
   param($a)
   [ElixCtl.ElixAudioCtl]::SetDefault([string]$a.id)
+  @{ ok = $true }
+}
+
+$global:ELIX_H['audio.nivel_dispositivo'] = {
+  param($a)
+  [ElixCtl.ElixAudioCtl]::SetDevice([string]$a.id, [int]$a.nivel, [int]$a.silencio)
   @{ ok = $true }
 }
 
