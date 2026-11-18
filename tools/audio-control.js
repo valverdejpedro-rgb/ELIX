@@ -29,6 +29,8 @@ function porCategoria(devs, texto) {
 const ID_RE = /^\{[0-9a-f.]+\}\.\{[0-9a-f-]+\}$/i; // forma de los identificadores de dispositivo de Windows
 
 module.exports = function registerAudioControl(registry, bridge) {
+  // Dispositivo que se dejó en el último cambio hecho aquí (para «vuelve al de antes»); solo mientras Radex siga abierto
+  const anterior = { salida: null, entrada: null };
   registry.register({
     name: 'audio_volumen_app',
     risk: 'safe',
@@ -130,7 +132,7 @@ module.exports = function registerAudioControl(registry, bridge) {
       const actual = devs.find((x) => x.predeterminado);
       if (dest.predeterminado) return { fail: `Ya estás usando ${etiquetaSalida(dest)}.` };
       if (!ID_RE.test(String(dest.id))) return { fail: 'Windows dio un identificador de dispositivo que no reconozco; no cambio nada.' };
-      return { resolved: { id: dest.id, nombre: etiquetaSalida(dest), anterior: actual ? etiquetaSalida(actual) : '' }, resumen: `Cambiar la salida de audio${actual ? ' de ' + etiquetaSalida(actual) : ''} a ${etiquetaSalida(dest)}` };
+      return { resolved: { id: dest.id, nombre: etiquetaSalida(dest), anterior: actual ? etiquetaSalida(actual) : '', anteriorId: actual ? actual.id : '' }, resumen: `Cambiar la salida de audio${actual ? ' de ' + etiquetaSalida(actual) : ''} a ${etiquetaSalida(dest)}` };
     },
     async run(a, r) {
       if (!ID_RE.test(String(r.id))) return { ok: false, mensaje: 'Identificador de dispositivo no válido.' };
@@ -139,7 +141,7 @@ module.exports = function registerAudioControl(registry, bridge) {
       let d2;
       try { d2 = await leerAudio(bridge, 'salida'); } catch { return { ok: true, verified: false, mensaje: `Pedí cambiar a ${r.nombre}, pero no pude comprobar el resultado.` }; }
       const def = (d2.dispositivos || []).find((x) => x.predeterminado);
-      if (def && def.id === r.id) return { ok: true, verified: true, mensaje: `Se ha cambiado a ${r.nombre}.` };
+      if (def && def.id === r.id) { if (r.anteriorId && r.anteriorId !== r.id) anterior.salida = { id: r.anteriorId, nombre: r.anterior }; return { ok: true, verified: true, mensaje: `Se ha cambiado a ${r.nombre}.` }; }
       return { ok: true, verified: false, mensaje: `Pedí cambiar a ${r.nombre}, pero Windows sigue mostrando ${def ? etiquetaSalida(def) : 'otro dispositivo'} como predeterminado.` };
     },
   });
@@ -185,7 +187,7 @@ module.exports = function registerAudioControl(registry, bridge) {
       const actual = todos.find((x) => x.predeterminado);
       if (dest.predeterminado) return { fail: `Ya estás usando ${etiquetaMic(dest, mapa)}.` };
       if (!ID_RE.test(String(dest.id))) return { fail: 'Windows dio un identificador de dispositivo que no reconozco; no cambio nada.' };
-      return { resolved: { id: dest.id, nombre: etiquetaMic(dest, mapa) }, resumen: `Cambiar el micrófono${actual ? ' de ' + etiquetaMic(actual, mapa) : ''} a ${etiquetaMic(dest, mapa)}` };
+      return { resolved: { id: dest.id, nombre: etiquetaMic(dest, mapa), anterior: actual ? etiquetaMic(actual, mapa) : '', anteriorId: actual ? actual.id : '' }, resumen: `Cambiar el micrófono${actual ? ' de ' + etiquetaMic(actual, mapa) : ''} a ${etiquetaMic(dest, mapa)}` };
     },
     async run(a, r) {
       if (!ID_RE.test(String(r.id))) return { ok: false, mensaje: 'Identificador de dispositivo no válido.' };
@@ -194,7 +196,7 @@ module.exports = function registerAudioControl(registry, bridge) {
       let m;
       try { m = await leerMics(); } catch { return { ok: true, verified: false, mensaje: `Pedí cambiar a ${r.nombre}, pero no pude comprobar el resultado.` }; }
       const def = m.todos.find((x) => x.predeterminado);
-      if (def && def.id === r.id) return { ok: true, verified: true, mensaje: `Se ha cambiado a ${r.nombre}.` };
+      if (def && def.id === r.id) { if (r.anteriorId && r.anteriorId !== r.id) anterior.entrada = { id: r.anteriorId, nombre: r.anterior }; return { ok: true, verified: true, mensaje: `Se ha cambiado a ${r.nombre}.` }; }
       return { ok: true, verified: false, mensaje: `Pedí cambiar a ${r.nombre}, pero Windows sigue mostrando ${def ? etiquetaMic(def, m.mapa) : 'otro micrófono'} como predeterminado.` };
     },
   });
@@ -232,6 +234,94 @@ module.exports = function registerAudioControl(registry, bridge) {
       const dev = m.devs.find((x) => norm(x.nombre) === norm(r.nombre));
       if (dev && m.mapa.get(dev) === r.rol) return { ok: true, verified: true, mensaje: `Listo: «${r.nombre}» queda registrado como ${ETIQUETA_ENTRADA[r.rol]}. Ya puedo cambiar a él cuando me lo pidas.` };
       return { ok: true, verified: false, mensaje: `Guardé la etiqueta, pero no pude comprobar que «${r.nombre}» quede como ${ETIQUETA_ENTRADA[r.rol]}.` };
+    },
+  });
+
+  // Volumen y silencio del MICRÓFONO que está en uso (el predeterminado de Windows)
+  registry.register({
+    name: 'audio_microfono_volumen',
+    risk: 'safe',
+    description: 'Cambia el volumen o el silencio del MICRÓFONO que está en uso (el predeterminado de Windows); no toca el volumen de salida. Úsala con “silencia el micrófono”, “activa el micrófono”, “sube / baja el micrófono”, “pon el micrófono al 80”. Para el volumen de los parlantes o del PC usa ajustar_volumen; para cambiar de micrófono usa audio_cambiar_microfono. Silenciar el micrófono en Windows lo silencia para todas las aplicaciones (Discord, Zoom, el navegador…).',
+    schema: {
+      properties: {
+        accion: { type: 'string', enum: ['establecer', 'subir', 'bajar', 'silenciar', 'activar_sonido'], description: 'establecer necesita porcentaje; subir y bajar usan paso (10 por defecto)' },
+        porcentaje: { type: 'integer', minimum: 0, maximum: 100, description: 'Volumen de 0 a 100 (solo con establecer)' },
+        paso: { type: 'integer', minimum: 1, maximum: 100, description: 'Cuánto subir o bajar (por defecto 10)' },
+      },
+      required: ['accion'],
+    },
+    async plan(a) {
+      let m;
+      try { m = await leerMics(); } catch (e) { return { fail: 'No pude leer el audio de Windows: ' + e.message }; }
+      const def = m.todos.find((x) => x.predeterminado);
+      if (!def) return { fail: 'Windows no muestra ningún micrófono en uso.' };
+      if (!ID_RE.test(String(def.id))) return { fail: 'Windows dio un identificador de dispositivo que no reconozco; no cambio nada.' };
+      const actual = def.volumen == null ? 0 : def.volumen;
+      let objetivo = null, silencio = -1;
+      switch (a.accion) {
+        case 'establecer':
+          if (a.porcentaje == null) return { fail: 'Falta el porcentaje de volumen (0 a 100).' };
+          objetivo = a.porcentaje; break;
+        case 'subir': objetivo = Math.min(100, actual + (a.paso || 10)); break;
+        case 'bajar': objetivo = Math.max(0, actual - (a.paso || 10)); break;
+        case 'silenciar': silencio = 1; break;
+        case 'activar_sonido': silencio = 0; break;
+        default: return { fail: 'Acción no válida.' };
+      }
+      return { resolved: { id: def.id, nombre: etiquetaMic(def, m.mapa), objetivo, silencio, actual }, resumen: `${a.accion} micrófono ${etiquetaMic(def, m.mapa)}` };
+    },
+    async run(a, r) {
+      if (!ID_RE.test(String(r.id))) return { ok: false, mensaje: 'Identificador de dispositivo no válido.' };
+      try { await bridge.request('audio.nivel_dispositivo', { id: r.id, nivel: r.objetivo == null ? -1 : r.objetivo, silencio: r.silencio }, { module: 'audio-control', timeout: 30000 }); }
+      catch (e) { return { ok: false, mensaje: 'No pude cambiar el micrófono: ' + e.message }; }
+      let m2;
+      try { m2 = await leerMics(); } catch { return { ok: true, verified: false, mensaje: `Cambié el micrófono (${r.nombre}), pero no pude comprobar cómo quedó.` }; }
+      const ahora = m2.todos.find((x) => x.id === r.id);
+      const okVol = r.objetivo == null || (!!ahora && ahora.volumen != null && Math.abs(ahora.volumen - r.objetivo) <= 3); // los micrófonos suben por pasos algo más gruesos
+      const okMute = r.silencio < 0 || (!!ahora && ahora.silenciado === (r.silencio === 1));
+      const partes = [];
+      if (r.objetivo != null) partes.push(`El micrófono en uso (${r.nombre}) está ahora al ${ahora && ahora.volumen != null ? ahora.volumen : r.objetivo}% (antes ${r.actual}%)`);
+      if (r.silencio === 1) partes.push(`Micrófono silenciado (${r.nombre})`);
+      if (r.silencio === 0) partes.push(`Micrófono activado otra vez (${r.nombre})`);
+      if (okVol && okMute) return { ok: true, verified: true, mensaje: partes.join('. ') + '.' };
+      return { ok: true, verified: false, mensaje: `Pedí el cambio del micrófono (${r.nombre}), pero Windows no muestra el resultado esperado.` };
+    },
+  });
+
+  // Volver al dispositivo de antes (salida o micrófono): recuerda el último cambio hecho desde que Radex está abierto
+  registry.register({
+    name: 'audio_volver_anterior',
+    risk: 'safe',
+    description: 'Vuelve al dispositivo de audio que se estaba usando ANTES del último cambio hecho con Radex (salida o micrófono). Úsala con “regrésame al micrófono de antes”, “vuelve a los altavoces de antes”, “deshaz el cambio de audio”. cual: salida (parlantes/auriculares) o entrada (micrófono). Solo recuerda el último cambio mientras Radex siga abierto.',
+    schema: { properties: { cual: { type: 'string', enum: ['salida', 'entrada'], description: 'salida = parlantes/auriculares; entrada = micrófono' } }, required: ['cual'] },
+    async plan(a) {
+      const dir = a.cual === 'entrada' ? 'entrada' : 'salida';
+      const ant = anterior[dir];
+      if (!ant) return { fail: `No tengo guardado a qué ${dir === 'entrada' ? 'micrófono' : 'salida'} volver: solo recuerdo el último cambio que hice desde que abrí Radex.` };
+      let d;
+      try { d = await leerAudio(bridge, dir); } catch (e) { return { fail: 'No pude leer el audio de Windows: ' + e.message }; }
+      const todos = d.dispositivos || [];
+      const dest = todos.find((x) => x.id === ant.id);
+      if (!dest) return { fail: `Ya no veo ${ant.nombre} entre los dispositivos activos (¿está desconectado o apagado?).` };
+      if (dest.predeterminado) return { fail: `Ya estás usando ${ant.nombre}.` };
+      if (!ID_RE.test(String(dest.id))) return { fail: 'Windows dio un identificador de dispositivo que no reconozco; no cambio nada.' };
+      const mapa = dir === 'entrada' ? clasificarEntradas(todos) : null;
+      const etiqueta = (x) => (dir === 'entrada' ? etiquetaMic(x, mapa) : etiquetaSalida(x));
+      const actual = todos.find((x) => x.predeterminado);
+      return { resolved: { id: dest.id, dir, nombre: etiqueta(dest), anteriorId: actual ? actual.id : '', anterior: actual ? etiqueta(actual) : '' }, resumen: `Volver a ${etiqueta(dest)}` };
+    },
+    async run(a, r) {
+      if (!ID_RE.test(String(r.id))) return { ok: false, mensaje: 'Identificador de dispositivo no válido.' };
+      try { await bridge.request('audio.dispositivo', { id: r.id }, { module: 'audio-control', timeout: 30000 }); }
+      catch (e) { return { ok: false, mensaje: 'No pude volver al dispositivo anterior: ' + e.message + ' No se cambió nada.' }; }
+      let d2;
+      try { d2 = await leerAudio(bridge, r.dir); } catch { return { ok: true, verified: false, mensaje: `Pedí volver a ${r.nombre}, pero no pude comprobar el resultado.` }; }
+      const def = (d2.dispositivos || []).find((x) => x.predeterminado);
+      if (def && def.id === r.id) {
+        anterior[r.dir] = r.anteriorId && r.anteriorId !== r.id ? { id: r.anteriorId, nombre: r.anterior } : null; // «vuelve» otra vez te lleva de regreso
+        return { ok: true, verified: true, mensaje: `Se ha vuelto a ${r.nombre}.` };
+      }
+      return { ok: true, verified: false, mensaje: `Pedí volver a ${r.nombre}, pero Windows sigue mostrando otro dispositivo como predeterminado.` };
     },
   });
 };
