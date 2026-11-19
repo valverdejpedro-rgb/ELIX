@@ -19,6 +19,7 @@ const ROLES_ENTRADA = ['laptop', 'externo', 'auriculares'];
 // ---- Lo que el usuario enseñó (dispositivos-audio.json) ----
 let dir = null;
 const setDir = (d) => { dir = d || null; };
+const dirDatos = () => dir;
 const archivoAlias = () => (dir ? path.join(dir, 'dispositivos-audio.json') : null);
 function leerAlias() {
   const f = archivoAlias(); if (!f) return [];
@@ -96,4 +97,4 @@ function etiquetaSalida(dev) {
   return nombre ? `«${nombre}»` : 'otro dispositivo';
 }
 
-module.exports = { norm, setDir, leerAlias, guardarAlias, clasificarEntradas, etiquetaMic, etiquetaSalida, modeloDe, marcaDe, categoriaSalida, ETIQUETA_ENTRADA, ETIQUETA_SALIDA, ROLES_ENTRADA };
+module.exports = { norm, setDir, dirDatos, leerAlias, guardarAlias, clasificarEntradas, etiquetaMic, etiquetaSalida, modeloDe, marcaDe, categoriaSalida, ETIQUETA_ENTRADA, ETIQUETA_SALIDA, ROLES_ENTRADA };
