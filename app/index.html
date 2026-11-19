@@ -142,6 +142,7 @@
   <h2>PRUEBA DEL MICRÓFONO</h2>
   <div class="row"><span>Permiso</span><b id="dgPerm">…</b></div>
   <label class="row">Micrófono <select id="dgDev"></select></label>
+  <label class="row" title="Ignora lo que suene mucho más flojo que tu voz (la tele, gente al fondo). Con «No filtrar» ELIX funciona como siempre.">Voces lejanas <select id="dgFar"><option value="1">No filtrar</option><option value="2">Filtrar (tele)</option><option value="3.5">Filtrar fuerte</option></select></label>
   <label class="row">Sensibilidad <select id="dgGain"><option value="1">Normal</option><option value="2">Alta (voz baja)</option><option value="4">Muy alta</option></select></label>
   <div class="dgbar"><i id="dgLvl"></i></div>
   <p id="dgMsg">Pulsa «Iniciar prueba» y di algo.</p>
@@ -525,7 +526,7 @@ $('#mic').onclick = () => {
 };
 
 /* ---------- Micrófono: elección, sensibilidad y prueba ---------- */
-const MIC = { id: store.get('jarvis:mic', ''), gain: +store.get('jarvis:micgain', '1') || 1 };
+const MIC = { id: store.get('jarvis:mic', ''), gain: +store.get('jarvis:micgain', '1') || 1, far: +store.get('jarvis:micfar', '1') || 1 }; // far: cuántas veces más fuerte que el umbral debe sonar la voz (1 = no filtrar)
 function micConstraints(useSaved) {
   const a = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
   if (useSaved && MIC.id) a.deviceId = { exact: MIC.id };
@@ -615,13 +616,15 @@ $('#diagBtn').onclick = () => {
 $('#dgStart').onclick = dgStart; $('#dgRec').onclick = dgRec;
 $('#dgDev').onchange = async (e) => { MIC.id = e.target.value; store.set('jarvis:mic', MIC.id); if (DG.stream) await dgStart(); };
 $('#dgGain').onchange = (e) => { MIC.gain = +e.target.value; store.set('jarvis:micgain', String(MIC.gain)); };
+$('#dgFar').value = String(MIC.far);
+$('#dgFar').onchange = (e) => { MIC.far = +e.target.value || 1; store.set('jarvis:micfar', String(MIC.far)); };
 $('#dgWin').onclick = () => { if (window.elixApp && elixApp.micSettings) elixApp.micSettings(); else $('#dgMsg').textContent = 'Abre Configuración de Windows > Privacidad > Micrófono.'; };
 $('#dgClose').onclick = () => $('#diag').close();
 $('#diag').addEventListener('close', dgStop);
 
 let meter = null, meterBusy = false;
-const GEM = { rec: false, working: false, buf: [], pre: [], silence: 0, len: 0, voiced: 0, hot: 0, noise: 0, calib: 0, thr: 0.02 };
-function gemReset() { GEM.rec = false; GEM.buf = []; GEM.pre = []; GEM.silence = 0; GEM.len = 0; GEM.voiced = 0; GEM.hot = 0; }
+const GEM = { rec: false, working: false, buf: [], pre: [], silence: 0, len: 0, voiced: 0, hot: 0, noise: 0, calib: 0, thr: 0.02, peak: 0 };
+function gemReset() { GEM.rec = false; GEM.buf = []; GEM.pre = []; GEM.silence = 0; GEM.len = 0; GEM.voiced = 0; GEM.hot = 0; GEM.peak = 0; }
 
 async function startMeter() {
   if (meter || meterBusy || !navigator.mediaDevices) return;
@@ -673,7 +676,7 @@ function gemChunk(chunk, sr) {
     GEM.pre.push(chunk); if (GEM.pre.length > 4) GEM.pre.shift();
     if (rms > (sn ? Math.max(0.010, GEM.noise * 2.2) : GEM.thr)) {
       // hacen falta 2 trozos seguidos (~0,2 s) por encima del ruido: así un golpe o clic no abre la grabación (esperando sí/no basta 1)
-      if (++GEM.hot >= (sn ? 1 : 2)) { GEM.rec = true; GEM.buf = [...GEM.pre]; GEM.pre = []; GEM.silence = 0; GEM.len = 0; GEM.voiced = dur * 2; setState('listening', 'Te escucho'); }
+      if (++GEM.hot >= (sn ? 1 : 2)) { GEM.rec = true; GEM.buf = [...GEM.pre]; GEM.pre = []; GEM.silence = 0; GEM.len = 0; GEM.voiced = dur * 2; GEM.peak = rms; setState('listening', 'Te escucho'); }
     } else {
       GEM.hot = 0;
       // el ruido de fondo se reajusta solo mientras esperas (ventilador, calle, etc.)
@@ -682,9 +685,9 @@ function gemChunk(chunk, sr) {
     }
     return;
   }
-  GEM.buf.push(chunk); GEM.len += dur;
+  GEM.buf.push(chunk); GEM.len += dur; if (rms > GEM.peak) GEM.peak = rms;
   if (rms < (sn ? Math.max(0.010, GEM.noise * 2.2) : GEM.thr) * 0.7) GEM.silence += dur; else { GEM.silence = 0; GEM.voiced += dur; }
-  if (GEM.silence > (sn ? 0.4 : 0.55) || GEM.len > 15) { const b = GEM.buf, v = GEM.voiced; gemReset(); gemFinish(b, sr, v); }
+  if (GEM.silence > (sn ? 0.4 : 0.55) || GEM.len > 15) { const b = GEM.buf, v = GEM.voiced, ratio = GEM.thr > 0 ? GEM.peak / GEM.thr : 99; gemReset(); gemFinish(b, sr, v, ratio); }
 }
 function downsample(f32, sr, target = 16000) {
   const ratio = sr / target, n = Math.floor(f32.length / ratio), out = new Float32Array(n);
@@ -772,10 +775,14 @@ async function transcribe(wav, lenient = false) {
   }
   throw { message: errs.join(' · ') };
 }
-async function gemFinish(chunks, sr, voiced = 1) {
+async function gemFinish(chunks, sr, voiced = 1, ratio = 99) {
   const total = chunks.reduce((a, c) => a + c.length, 0);
   const sn = esperandoSN(); // esperando un sí/no: una palabra corta es válida
   if (total / sr < (sn ? 0.25 : 0.5) || voiced < (sn ? 0.12 : 0.3)) { setState('listening', listenLabel()); return; } // muy corto o solo ruido
+  if (!sn && MIC.far > 1 && ratio < MIC.far) { // voz floja o lejana (tele, gente al fondo): no se transcribe
+    hint('Ignoré una voz lejana o floja (nivel ' + ratio.toFixed(1) + '×; pido ' + MIC.far + '×). Si eras tú, habla más cerca o baja el filtro en «Probar micrófono».');
+    setState('listening', listenLabel()); return;
+  }
   GEM.working = true; setState('thinking', 'Transcribiendo');
   let text = '';
   try {
@@ -1457,6 +1464,7 @@ function pintarSil() {
     if (!ts.length) { clearInterval(silTimer); silTimer = null; }
   }, 500);
 }
+const REACTIVAR_RE = /^(por favor )?(reactiva|reactivar|activa|activar|quita|quitar|restaura|restaurar|desilencia|desilenciar) (todo|todos|todas)( los silencios| el audio| el sonido| lo silenciado| lo que (esta|estaba) silenciado)?( por favor)?$/;
 // Tras cualquier acción de audio se vuelve a leer el estado real, para que el banner no espere al sondeo
 function refrescarEstadoAudio() { if (window.elixAudio) setTimeout(() => { window.elixAudio.estado().then(setSil).catch(() => {}); }, 700); }
 function setSil(e) { silItems = (e && Array.isArray(e.items)) ? e.items.slice(0, 12) : []; silUso = (e && e.uso) || {}; pintarSil(); pintarMicNow(); }
@@ -1541,6 +1549,16 @@ async function send(text) {
     }
     const gest = gestionarAtajos(text); // «¿qué atajos tienes?» / «olvida el atajo …»
     if (gest) { await decir(gest); return; }
+    // «Reactiva todo»: orden fija (no depende de que el cerebro elija bien la herramienta)
+    if (REACTIVAR_RE.test(normText(text))) {
+      const tr = REG_TOOLS.find((x) => x.name === 'audio_reactivar_todo');
+      if (tr) {
+        setState('acting', 'Ejecutando');
+        let o; try { o = await tr.execute({}); } catch (e) { o = 'FALLÓ: ' + (e.message || e); }
+        addEl('chip', 'audio_reactivar_todo: ' + String(o).slice(0, 600)); refrescarEstadoAudio();
+        await decir(String(o).replace(/^(VERIFICADO|FALLÓ):\s*/, '').split('\n')[0].trim() || 'Listo.'); return;
+      }
+    }
     const hit = ATAJOS.on ? buscarAtajo(text) : null; // ¿ya la aprendí? se ejecuta sin gastar tokens
     if (hit && !hit.r) {
       const msg = await ejecutarAtajo(hit);
