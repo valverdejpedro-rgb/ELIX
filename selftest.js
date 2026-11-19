@@ -258,7 +258,7 @@ async function audioControlTests() {
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'parlantes' });
   check('alias "parlantes" → laptop', r.verified && st.devs[0].predeterminado && !st.devs[1].predeterminado, r.text);
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'altavoces' });
-  check('si ya es el predeterminado → FALLÓ «Ya estás usando …» y no cambia nada', !r.ok && /Ya estás usando altavoces de la laptop/.test(r.text) && cambios() === c1 + 3, r.text);
+  check('si ya es el predeterminado → FALLÓ «Ya estás usando …» y no cambia nada', !r.ok && /La salida de sonido ya está en altavoces de la laptop/.test(r.text) && cambios() === c1 + 3, r.text);
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'realtek' });
   check('nombre ambiguo → AMBIGUO y no cambia nada', r.clarify && /AMBIGUO/.test(r.text) && cambios() === c1 + 3, r.text);
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'bluetooth' });
@@ -275,7 +275,7 @@ async function audioControlTests() {
   rechazar = false;
   const c3 = cambios();
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'laptop' });
-  check('micrófono: si ya es el de la laptop → FALLÓ «Ya estás usando micrófono de la laptop»', !r.ok && /Ya estás usando micrófono de la laptop/.test(r.text) && cambios() === c3, r.text);
+  check('micrófono: si ya es el de la laptop → FALLÓ «Ya estás usando micrófono de la laptop»', !r.ok && /En Windows el micrófono en uso ya es: micrófono de la laptop/.test(r.text) && cambios() === c3, r.text);
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'audífonos inalámbricos' });
   check('micrófono: a los audífonos se hace directo → «audífonos inalámbricos CORSAIR»', r.ok && r.verified && !r.pending && st.mics[1].predeterminado && !st.mics[0].predeterminado && /Se ha cambiado a audífonos inalámbricos CORSAIR\./.test(r.text), r.text);
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'externo' });
@@ -288,7 +288,7 @@ async function audioControlTests() {
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'mezcla estereo' });
   check('micrófono: la mezcla estéreo nunca se ofrece', !r.ok && !r.pending, r.text);
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'externo' });
-  check('micrófono: si ya es el predeterminado → FALLÓ «Ya estás usando …»', !r.ok && /Ya estás usando micrófono externo ETHOS 101/.test(r.text), r.text);
+  check('micrófono: si ya es el predeterminado → FALLÓ «Ya estás usando …»', !r.ok && /En Windows el micrófono en uso ya es: micrófono externo ETHOS 101/.test(r.text), r.text);
   const idOriginal = st.mics[1].id; st.mics[1].id = 'x; calc.exe';
   const c3b = cambios();
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'corsair' });
