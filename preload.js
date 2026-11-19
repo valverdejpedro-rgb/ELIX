@@ -47,6 +47,18 @@ contextBridge.exposeInMainWorld('elixAtajos', {
   save: (items) => ipcRenderer.invoke('atajos:save', items),
 });
 
+// Historial de frases oídas (para ver qué entendió y qué no)
+contextBridge.exposeInMainWorld('elixFrases', {
+  load: () => ipcRenderer.invoke('frases:load'),
+  save: (items) => ipcRenderer.invoke('frases:save', items),
+});
+
+// Memoria permanente: ver y olvidar recuerdos desde el panel «Órdenes»
+contextBridge.exposeInMainWorld('elixMemoria', {
+  list: () => ipcRenderer.invoke('memoria:list'),
+  del: (id) => ipcRenderer.invoke('memoria:del', String(id)),
+});
+
 // Acciones de PC (abrir apps, carpetas, volumen, multimedia, info, bloquear)
 const NATIVE_NAMES = ['abrir_aplicacion', 'abrir_carpeta', 'ajustar_volumen', 'control_multimedia', 'info_del_sistema', 'bloquear_pc', 'controlar_ventana'];
 contextBridge.exposeInMainWorld('jarvisNative', Object.fromEntries(

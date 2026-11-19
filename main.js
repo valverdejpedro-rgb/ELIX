@@ -429,6 +429,41 @@ ipcMain.handle('atajos:save', (e, items) => {
   } catch { return false; }
 });
 
+// Historial de frases oídas (frases.json) y memoria permanente (ver / olvidar desde el panel «Órdenes»)
+const FRASES_FILE = () => path.join(app.getPath('userData'), 'frases.json');
+const RES_FRASE = new Set(['atajo', 'cerebro', 'silencio', 'no-orden', 'ruido', 'ignorada']);
+const fraseValida = (x) => x && typeof x.x === 'string' && x.x.length > 0 && RES_FRASE.has(x.r);
+ipcMain.handle('frases:load', (e) => {
+  if (!trusted(e)) return [];
+  try { const d = JSON.parse(fs.readFileSync(FRASES_FILE(), 'utf8')); return (Array.isArray(d.items) ? d.items : []).filter(fraseValida).slice(0, 300); } catch { return []; }
+});
+ipcMain.handle('frases:save', (e, items) => {
+  if (!trusted(e) || !Array.isArray(items)) return false;
+  try {
+    const clean = items.filter(fraseValida).slice(0, 300).map((x) => ({ x: x.x.slice(0, 200), r: x.r, t: Number(x.t) || 0, ...(typeof x.h === 'string' && x.h ? { h: x.h.slice(0, 80) } : {}) }));
+    const f = FRASES_FILE(), tmp = f + '.tmp';
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, items: clean }, null, 1), 'utf8');
+    fs.renameSync(tmp, f);
+    return true;
+  } catch { return false; }
+});
+const MEMORIA_FILE = () => path.join(app.getPath('userData'), 'memoria.json');
+const leerMemoria = () => { try { const d = JSON.parse(fs.readFileSync(MEMORIA_FILE(), 'utf8')); return Array.isArray(d.items) ? d.items.filter((x) => x && x.id && x.titulo && x.texto) : []; } catch { return []; } };
+ipcMain.handle('memoria:list', (e) => (trusted(e) ? leerMemoria().map((x) => ({ id: String(x.id), tipo: String(x.tipo || 'dato'), titulo: String(x.titulo), texto: String(x.texto) })) : []));
+ipcMain.handle('memoria:del', (e, id) => {
+  if (!trusted(e)) return false;
+  try {
+    const items = leerMemoria(); const nuevo = items.filter((x) => String(x.id) !== String(id));
+    if (nuevo.length === items.length) return false;
+    const f = MEMORIA_FILE(), tmp = f + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify({ v: 1, items: nuevo }, null, 1), 'utf8');
+    fs.renameSync(tmp, f);
+    programarRespaldo();
+    return true;
+  } catch { return false; }
+});
+
 ipcMain.handle('app:info', (e) => trusted(e) ? { version: app.getVersion(), status: lastStatus } : null);
 ipcMain.handle('app:check', (e) => {
   if (!trusted(e)) return;
