@@ -453,6 +453,7 @@ async function audioControlTests() {
   check('estado en pantalla: el silencio temporal trae el momento en que termina', estT.items.some((x) => x.dir === 'entrada' && x.hasta > Date.now() - 100), JSON.stringify(estT));
   await ctlT.liberar();
   const estV = await ctlT.estado();
+  check('estado en pantalla: trae quién está en uso por el equipo (entrada y salida) y el nombre de Windows de lo silenciado', estT.uso && estT.uso.entrada && estT.uso.salida && estT.items.every((x) => typeof x.nombreWindows === 'string'), JSON.stringify(estT));
   check('estado en pantalla: sin silencios la lista queda vacía', estV.items.length === 0, JSON.stringify(estV));
   r = await reg.invoke('audio_salida_volumen', { accion: 'silenciar', dispositivo: 'laptop' });
   check('salida concreta: silenciar los parlantes de la laptop y verificar', r.ok && r.verified && /Salida silenciada/.test(r.mensaje), r.text);
@@ -460,6 +461,27 @@ async function audioControlTests() {
   check('audio_silenciados: también lista salidas silenciadas', r.ok && /Salidas? silenciad/.test(r.mensaje), r.text);
   r = await reg.invoke('audio_salida_volumen', { accion: 'activar_sonido', dispositivo: 'laptop' });
   check('salida concreta: se vuelve a activar', r.ok && r.verified && /activada otra vez/.test(r.mensaje), r.text);
+
+  // Volumen recordado: si algo lo mueve mientras el micrófono está en silencio, al reactivarlo vuelve al de antes
+  for (const m of st.mics) { m.predeterminado = false; m.silenciado = false; }
+  st.mics[0].predeterminado = true; st.mics[0].volumen = 60;
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'silenciar' });
+  st.mics[0].volumen = 20; // Windows o una app lo baja mientras está en silencio
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'activar_sonido' });
+  check('volumen recordado: al activar el sonido vuelve al volumen de antes (60) y lo dice', r.ok && r.verified && st.mics[0].volumen === 60 && st.mics[0].silenciado === false && /restaurado al 60%/.test(r.mensaje), r.text);
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'silenciar' });
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'activar_sonido' });
+  check('volumen recordado: si no cambió, no lo toca ni lo menciona', r.verified && st.mics[0].volumen === 60 && !/restaurado/.test(r.mensaje), r.text);
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', segundos: 1 });
+  st.mics[0].volumen = 25;
+  await esperar(1700);
+  check('volumen recordado: el silencio temporal también restaura el volumen al reactivarse', st.mics[0].silenciado === false && st.mics[0].volumen === 60, JSON.stringify({ s: st.mics[0].silenciado, v: st.mics[0].volumen }));
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'establecer', porcentaje: 40 });
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'silenciar' });
+  st.mics[0].volumen = 90;
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'activar_sonido' });
+  check('volumen recordado: un ajuste hecho a propósito (40) es el nuevo volumen a recordar', st.mics[0].volumen === 40, String(st.mics[0].volumen));
+  check('volumen recordado: queda guardado en disco', require('fs').existsSync(require('path').join(anm.dirDatos(), 'volumenes-audio.json')));
 
   const srcCtl = fs.readFileSync(path.join(__dirname, 'native', 'audio-control.ps1'), 'utf8');
   const srcLect = fs.readFileSync(path.join(__dirname, 'native', 'audio.ps1'), 'utf8');
