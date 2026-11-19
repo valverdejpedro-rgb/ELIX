@@ -180,6 +180,7 @@ module.exports = function registerAudioControl(registry, bridge) {
       let match;
       if (cat) {
         match = devs.filter((x) => mapa.get(x) === cat);
+        if (!match.length && !devs.some((x) => mapa.get(x) === null)) return { fail: `No veo ${ETIQUETA_ENTRADA[cat]} entre los micrófonos activos: ¿está conectado y encendido? Ahora veo: ${listaMics(devs)}. No cambié nada.` };
         if (!match.length) return { fail: `No tengo identificado ${ETIQUETA_ENTRADA[cat]}. Los micrófonos activos son: ${listaMics(devs)}. Dime cuál es, por ejemplo: «el micrófono Realtek es el de la laptop», y lo recordaré. (Windows solo muestra los micrófonos que están conectados y encendidos.)` };
       } else {
         match = devs.filter((x) => norm(x.nombre).includes(q));
@@ -369,6 +370,7 @@ module.exports = function registerAudioControl(registry, bridge) {
       else if (/externo|usb|jack|conector|afuera/.test(q)) cat = 'externo';
       if (cat) {
         match = L.devs.filter((x) => L.mapa.get(x) === cat);
+        if (!match.length && !L.devs.some((x) => L.mapa.get(x) === null)) return { fail: `No veo ${ETIQUETA_ENTRADA[cat]} entre los micrófonos activos: ¿está conectado y encendido? Ahora veo: ${listaMics(L.devs)}. No cambié nada.` };
         if (!match.length) return { fail: `No tengo identificado ${ETIQUETA_ENTRADA[cat]}. Los micrófonos activos son: ${listaMics(L.devs)}. Dime cuál es, por ejemplo: «el micrófono Realtek es el de la laptop», y lo recordaré.` };
       } else match = L.devs.filter((x) => norm(x.nombre).includes(q));
       if (!match.length) return { fail: `No encuentro un micrófono llamado «${texto}». Los activos son: ${listaMics(L.devs)}.` };
@@ -486,6 +488,38 @@ module.exports = function registerAudioControl(registry, bridge) {
       }
       notificarEstado();
       return { ok: true, verified: true, mensaje: partes.join('. ') + '.' };
+    },
+  });
+
+  // Quitar TODOS los silencios (micrófonos y salidas): solo reactiva lo que está silenciado; nunca silencia nada
+  registry.register({
+    name: 'audio_reactivar_todo',
+    risk: 'safe',
+    description: 'Quita el silencio de TODOS los micrófonos y salidas (parlantes, auriculares) que estén silenciados en este momento, cancela los silencios temporales pendientes y deja cada uno en el volumen que tenía. Úsala con “reactiva todo”, “quita todos los silencios”, “activa todo el audio”, “activa todo”. No silencia nada. Para reactivar solo uno, usa audio_microfono_volumen o audio_salida_volumen con dispositivo.',
+    schema: { properties: {}, required: [] },
+    async run() {
+      const hechos = [], fallos = [];
+      for (const dir of ['entrada', 'salida']) {
+        let L;
+        try { L = await leerDisp(dir); } catch (e) { return { ok: false, mensaje: 'No pude leer el audio de Windows: ' + e.message }; }
+        for (const x of L.todos.filter((d) => d.silenciado === true)) {
+          if (!ID_RE.test(String(x.id))) { fallos.push(L.etiqueta(x)); continue; }
+          const rec = volRecordado(x.id);
+          const nivel = rec != null && x.volumen != null && Math.abs(x.volumen - rec) > 2 ? rec : -1; // si algo movió el volumen mientras estaba en silencio, vuelve al de antes
+          try { await bridge.request('audio.nivel_dispositivo', { id: x.id, nivel, silencio: 0 }, { module: 'audio-control', timeout: 30000 }); cancelarTemporal(x.id); hechos.push({ dir, id: x.id, nombre: L.etiqueta(x) }); }
+          catch { fallos.push(L.etiqueta(x)); }
+        }
+      }
+      if (!hechos.length && !fallos.length) return { ok: true, verified: true, mensaje: 'No hay ningún micrófono ni salida silenciados.' };
+      let quedan = [];
+      try {
+        const LE = await leerDisp('entrada'), LS = await leerDisp('salida');
+        quedan = hechos.filter((h) => { const d = (h.dir === 'entrada' ? LE : LS).todos.find((x) => x.id === h.id); return !d || d.silenciado !== false; }).map((h) => h.nombre);
+      } catch { return { ok: true, verified: false, mensaje: `Quité el silencio (${hechos.map((h) => h.nombre).join(', ')}), pero no pude comprobar cómo quedó.` }; }
+      notificarEstado();
+      const lista = (a) => a.join(', ');
+      if (!fallos.length && !quedan.length) return { ok: true, verified: true, mensaje: `Reactivé ${hechos.length === 1 ? '1 dispositivo' : hechos.length + ' dispositivos'}: ${lista(hechos.map((h) => h.nombre))}.` };
+      return { ok: false, mensaje: `No pude reactivar: ${lista([...fallos, ...quedan])}.${hechos.length - quedan.length > 0 ? ' Sí reactivé el resto.' : ''}` };
     },
   });
 
