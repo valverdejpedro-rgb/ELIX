@@ -4,7 +4,9 @@
 // Siempre se resuelve primero qué app o dispositivo es (plan); si hay duda, no se hace nada y se pregunta.
 // Después de actuar se vuelve a leer Windows para comprobar que quedó así (VERIFICADO).
 const { leerAudio } = require('./audio');
-const { clasificarEntradas, ETIQUETA_ENTRADA, ROLES_ENTRADA, etiquetaMic, etiquetaSalida, leerAlias, guardarAlias } = require('./audio-nombres');
+const fs = require('fs');
+const path = require('path');
+const { clasificarEntradas, ETIQUETA_ENTRADA, ROLES_ENTRADA, etiquetaMic, etiquetaSalida, leerAlias, guardarAlias, dirDatos } = require('./audio-nombres');
 
 const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
 const ALIAS_APP = { 'google chrome': 'chrome', 'microsoft edge': 'msedge', edge: 'msedge', sistema: 'sonidos del sistema', sonidos: 'sonidos del sistema' };
@@ -31,6 +33,7 @@ const ID_RE = /^\{[0-9a-f.]+\}\.\{[0-9a-f-]+\}$/i; // forma de los identificador
 module.exports = function registerAudioControl(registry, bridge) {
   // Dispositivo que se dejó en el último cambio hecho aquí (para «vuelve al de antes»); solo mientras Radex siga abierto
   const anterior = { salida: null, entrada: null };
+  let tempCtl = null; // se rellena más abajo; lo usa tools/index.js (reactivar al abrir/cerrar, avisos)
   registry.register({
     name: 'audio_volumen_app',
     risk: 'safe',
@@ -237,16 +240,70 @@ module.exports = function registerAudioControl(registry, bridge) {
     },
   });
 
+  // ---- Silencio temporal del micrófono: el temporizador vive aquí (en el programa principal), así funciona aunque Radex no pueda oírte ----
+  const temporales = new Map(); // id del micrófono → { timer, hasta, nombre }
+  let avisar = () => {};
+  const duracionTexto = (s) => {
+    if (s < 60) return `${s} ${s === 1 ? 'segundo' : 'segundos'}`;
+    if (s < 3600) { const m = Math.floor(s / 60), x = s % 60; return `${m} ${m === 1 ? 'minuto' : 'minutos'}` + (x ? ` y ${x} segundos` : ''); }
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return `${h} ${h === 1 ? 'hora' : 'horas'}` + (m ? ` y ${m} minutos` : '');
+  };
+  const archivoTemporal = () => { const d = dirDatos(); return d ? path.join(d, 'silencio-temporal.json') : null; };
+  // Se guarda qué micrófonos están en silencio temporal: si Radex se cierra o falla, al abrir se reactivan (o se retoma el tiempo que faltaba)
+  function guardarTemporales() {
+    const f = archivoTemporal(); if (!f) return;
+    try {
+      if (!temporales.size) { try { fs.unlinkSync(f); } catch {} return; }
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f + '.tmp', JSON.stringify({ v: 1, items: [...temporales].map(([id, t]) => ({ id, hasta: t.hasta, nombre: t.nombre })) }), 'utf8');
+      fs.renameSync(f + '.tmp', f);
+    } catch {}
+  }
+  function cancelarTemporal(id) { const t = temporales.get(id); if (t) { clearTimeout(t.timer); temporales.delete(id); guardarTemporales(); } }
+  function programar(id, nombre, ms) {
+    const prev = temporales.get(id); if (prev) clearTimeout(prev.timer);
+    const timer = setTimeout(() => { reactivar(id, nombre); }, ms);
+    if (timer.unref) timer.unref();
+    temporales.set(id, { timer, hasta: Date.now() + ms, nombre });
+    guardarTemporales();
+  }
+  async function reactivar(id, nombre) {
+    cancelarTemporal(id);
+    let ok = false;
+    for (let i = 0; i < 2 && !ok; i++) {
+      try {
+        await bridge.request('audio.nivel_dispositivo', { id, nivel: -1, silencio: 0 }, { module: 'audio-control', timeout: 30000 });
+        const m = await leerMics(); const dv = m.todos.find((x) => x.id === id);
+        ok = !!dv && dv.silenciado === false;
+      } catch {}
+    }
+    try { avisar(ok ? `Micrófono activado otra vez${nombre ? ' (' + nombre + ')' : ''}.` : `No pude reactivar el micrófono${nombre ? ' (' + nombre + ')' : ''}. Escríbeme «activa el micrófono» o actívalo en Windows.`); } catch {}
+    return ok;
+  }
+  async function recuperar() { // al abrir Radex: reactiva (o retoma) lo que quedó en silencio temporal
+    const f = archivoTemporal(); if (!f) return;
+    let items = []; try { items = JSON.parse(fs.readFileSync(f, 'utf8')).items || []; } catch { return; }
+    try { fs.unlinkSync(f); } catch {}
+    for (const it of items) {
+      if (!it || !ID_RE.test(String(it.id))) continue;
+      const resta = Number(it.hasta) - Date.now();
+      if (resta > 1500) programar(it.id, it.nombre || '', resta); else await reactivar(it.id, it.nombre || '');
+    }
+  }
+  async function liberar() { for (const [id, t] of [...temporales]) await reactivar(id, t.nombre); } // al cerrar Radex
+  tempCtl = { recuperar, liberar, hayTemporales: () => temporales.size > 0, setAvisar: (fn) => { avisar = typeof fn === 'function' ? fn : () => {}; } };
+
   // Volumen y silencio del MICRÓFONO que está en uso (el predeterminado de Windows)
   registry.register({
     name: 'audio_microfono_volumen',
     risk: 'safe',
-    description: 'Cambia el volumen o el silencio del MICRÓFONO que está en uso (el predeterminado de Windows); no toca el volumen de salida. Úsala con “silencia el micrófono”, “activa el micrófono”, “sube / baja el micrófono”, “pon el micrófono al 80”. Para el volumen de los parlantes o del PC usa ajustar_volumen; para cambiar de micrófono usa audio_cambiar_microfono. Silenciar el micrófono en Windows lo silencia para todas las aplicaciones (Discord, Zoom, el navegador…).',
+    description: 'Cambia el volumen o el silencio del MICRÓFONO que está en uso (el predeterminado de Windows); no toca el volumen de salida. Úsala con “silencia el micrófono”, “activa el micrófono”, “sube / baja el micrófono”, “pon el micrófono al 80”. Para el volumen de los parlantes o del PC usa ajustar_volumen; para cambiar de micrófono usa audio_cambiar_microfono. Silenciar el micrófono en Windows lo silencia para todas las aplicaciones (Discord, Zoom, el navegador…) y también para Radex, que no podrá oír hasta que se reactive. SILENCIO TEMPORAL: si el usuario dice una duración (“silencia el micrófono por 5 segundos / 2 minutos / una hora”), usa silenciar con segundos (conviértela: 5 segundos → 5; 2 minutos → 120; una hora → 3600) y el micrófono se reactiva solo.',
     schema: {
       properties: {
         accion: { type: 'string', enum: ['establecer', 'subir', 'bajar', 'silenciar', 'activar_sonido'], description: 'establecer necesita porcentaje; subir y bajar usan paso (10 por defecto)' },
         porcentaje: { type: 'integer', minimum: 0, maximum: 100, description: 'Volumen de 0 a 100 (solo con establecer)' },
         paso: { type: 'integer', minimum: 1, maximum: 100, description: 'Cuánto subir o bajar (por defecto 10)' },
+        segundos: { type: 'integer', minimum: 1, maximum: 43200, description: 'Solo con silenciar: silencio temporal. Pasados estos segundos el micrófono se reactiva solo (máximo 12 horas)' },
       },
       required: ['accion'],
     },
@@ -268,12 +325,15 @@ module.exports = function registerAudioControl(registry, bridge) {
         case 'activar_sonido': silencio = 0; break;
         default: return { fail: 'Acción no válida.' };
       }
-      return { resolved: { id: def.id, nombre: etiquetaMic(def, m.mapa), objetivo, silencio, actual }, resumen: `${a.accion} micrófono ${etiquetaMic(def, m.mapa)}` };
+      return { resolved: { id: def.id, nombre: etiquetaMic(def, m.mapa), objetivo, silencio, actual, segundos: a.accion === 'silenciar' && a.segundos ? a.segundos : 0 }, resumen: `${a.accion} micrófono ${etiquetaMic(def, m.mapa)}` };
     },
     async run(a, r) {
       if (!ID_RE.test(String(r.id))) return { ok: false, mensaje: 'Identificador de dispositivo no válido.' };
       try { await bridge.request('audio.nivel_dispositivo', { id: r.id, nivel: r.objetivo == null ? -1 : r.objetivo, silencio: r.silencio }, { module: 'audio-control', timeout: 30000 }); }
       catch (e) { return { ok: false, mensaje: 'No pude cambiar el micrófono: ' + e.message }; }
+      // Silencio temporal: el temporizador se arma ya (aunque falle la comprobación) para que nunca quede silenciado de más
+      if (r.silencio === 1 && r.segundos) programar(r.id, r.nombre, r.segundos * 1000);
+      else if (r.silencio >= 0) cancelarTemporal(r.id); // silencio permanente, o activar el sonido: se anula cualquier temporizador
       let m2;
       try { m2 = await leerMics(); } catch { return { ok: true, verified: false, mensaje: `Cambié el micrófono (${r.nombre}), pero no pude comprobar cómo quedó.` }; }
       const ahora = m2.todos.find((x) => x.id === r.id);
@@ -281,7 +341,7 @@ module.exports = function registerAudioControl(registry, bridge) {
       const okMute = r.silencio < 0 || (!!ahora && ahora.silenciado === (r.silencio === 1));
       const partes = [];
       if (r.objetivo != null) partes.push(`El micrófono en uso (${r.nombre}) está ahora al ${ahora && ahora.volumen != null ? ahora.volumen : r.objetivo}% (antes ${r.actual}%)`);
-      if (r.silencio === 1) partes.push(`Micrófono silenciado (${r.nombre})`);
+      if (r.silencio === 1) partes.push(r.segundos ? `Micrófono silenciado por ${duracionTexto(r.segundos)} (${r.nombre}). Se reactivará solo` : `Micrófono silenciado (${r.nombre})`);
       if (r.silencio === 0) partes.push(`Micrófono activado otra vez (${r.nombre})`);
       if (okVol && okMute) return { ok: true, verified: true, mensaje: partes.join('. ') + '.' };
       return { ok: true, verified: false, mensaje: `Pedí el cambio del micrófono (${r.nombre}), pero Windows no muestra el resultado esperado.` };
@@ -324,4 +384,5 @@ module.exports = function registerAudioControl(registry, bridge) {
       return { ok: true, verified: false, mensaje: `Pedí volver a ${r.nombre}, pero Windows sigue mostrando otro dispositivo como predeterminado.` };
     },
   });
+  return tempCtl;
 };
