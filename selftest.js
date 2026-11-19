@@ -483,6 +483,24 @@ async function audioControlTests() {
   check('volumen recordado: un ajuste hecho a propósito (40) es el nuevo volumen a recordar', st.mics[0].volumen === 40, String(st.mics[0].volumen));
   check('volumen recordado: queda guardado en disco', require('fs').existsSync(require('path').join(anm.dirDatos(), 'volumenes-audio.json')));
 
+  // Reactivar todo: quita los silencios de micrófonos y salidas, y no toca lo que no estaba silenciado
+  for (const m of st.mics) { m.silenciado = false; m.volumen = 60; }
+  await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', dispositivo: 'externo' });
+  await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', dispositivo: 'laptop' });
+  await reg.invoke('audio_salida_volumen', { accion: 'silenciar', dispositivo: 'laptop' });
+  r = await reg.invoke('audio_silenciados', {});
+  check('reactivar todo (preparación): hay micrófonos y una salida silenciados', /Micrófonos silenciados/.test(r.mensaje) && /Salidas silenciad/.test(r.mensaje), r.text);
+  r = await reg.invoke('audio_reactivar_todo', {});
+  check('reactivar todo: quita todos los silencios y lo verifica', r.ok && r.verified && /Reactivé 3 dispositivos/.test(r.mensaje), r.text);
+  r = await reg.invoke('audio_silenciados', {});
+  check('reactivar todo: después no queda nada silenciado', /Micrófonos: ninguno/.test(r.mensaje) && /Salidas: ninguno/.test(r.mensaje), r.text);
+  r = await reg.invoke('audio_reactivar_todo', {});
+  check('reactivar todo: si no había nada silenciado, lo dice y no cambia nada', r.ok && /ningún micrófono ni salida silenciados/.test(r.mensaje), r.text);
+  const iCor = st.mics.findIndex((m) => /corsair|inal/i.test(m.nombre)), quitado = iCor >= 0 ? st.mics.splice(iCor, 1)[0] : null; // los audífonos «se desconectan»
+  r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'auriculares inalámbricos' });
+  if (quitado) st.mics.splice(iCor, 0, quitado);
+  check('micrófono inalámbrico no conectado: dice que no lo ve (no pide asignarlo) y no cambia nada', !r.ok && /No veo el micrófono de los audífonos entre los micrófonos activos/.test(r.text) && /¿está conectado/.test(r.text), r.text);
+
   const srcCtl = fs.readFileSync(path.join(__dirname, 'native', 'audio-control.ps1'), 'utf8');
   const srcLect = fs.readFileSync(path.join(__dirname, 'native', 'audio.ps1'), 'utf8');
   check('ningún módulo declara clases COM con "new" (chocarían entre sí al cargarse los dos)', !/new\s+(MMDeviceEnumeratorCom|PolicyConfigClient)\s*\(/.test(srcLect + srcCtl) && !/class\s+(MMDeviceEnumeratorCom|PolicyConfigClient)/.test(srcLect + srcCtl));
