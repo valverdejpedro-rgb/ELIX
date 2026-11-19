@@ -491,7 +491,17 @@ const lock = app.requestSingleInstanceLock();
 if (!lock) app.quit();
 else {
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
-  app.whenReady().then(() => { restaurarSiFalta(); respaldarAhora(); elixTools.init({ logFile: path.join(app.getPath('userData'), 'tools-log.jsonl') }); createWindow(); setupUpdater(); });
+  app.whenReady().then(() => { restaurarSiFalta(); respaldarAhora(); elixTools.setAvisar((t) => { try { win && win.webContents.send('elix:aviso', String(t).slice(0, 300)); } catch {} }); elixTools.init({ logFile: path.join(app.getPath('userData'), 'tools-log.jsonl') }); createWindow(); setupUpdater(); });
   app.on('window-all-closed', () => app.quit());
-  app.on('before-quit', () => { try { elixTools.shutdown(); } catch {} });
+  let cerrando = false;
+  app.on('before-quit', (e) => {
+    if (cerrando) return;
+    cerrando = true;
+    if (elixTools.hayTemporales()) { // silencio temporal en curso: se reactiva el micrófono antes de cerrar (máximo 3 s)
+      e.preventDefault();
+      Promise.race([elixTools.liberar(), new Promise((r) => setTimeout(r, 3000))]).catch(() => {}).then(() => { try { elixTools.shutdown(); } catch {} app.quit(); });
+      return;
+    }
+    try { elixTools.shutdown(); } catch {}
+  });
 }

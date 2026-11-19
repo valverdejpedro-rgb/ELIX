@@ -32,6 +32,9 @@ contextBridge.exposeInMainWorld('elixTools', {
   confirm: (accept) => ipcRenderer.invoke('tools:confirm', !!accept),
 });
 
+// Avisos que Radex dice por su cuenta (p. ej. cuando termina un silencio temporal del micrófono)
+contextBridge.exposeInMainWorld('elixAvisos', { onAviso: (cb) => ipcRenderer.on('elix:aviso', (_e, t) => cb(String(t))) });
+
 // Atajos aprendidos (órdenes que ya funcionaron: se guardan en el PC y se ejecutan sin gastar tokens)
 contextBridge.exposeInMainWorld('elixAtajos', {
   load: () => ipcRenderer.invoke('atajos:load'),
