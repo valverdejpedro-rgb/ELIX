@@ -241,6 +241,19 @@ module.exports = function registerAudioControl(registry, bridge) {
   });
 
   // ---- Silencio temporal del micrófono: el temporizador vive aquí (en el programa principal), así funciona aunque Radex no pueda oírte ----
+  // ---- Volumen recordado por dispositivo: el que tenía al silenciarlo o al ajustarlo; se restaura al reactivarlo si algo lo movió ----
+  const archivoVol = () => { const d = dirDatos(); return d ? path.join(d, 'volumenes-audio.json') : null; };
+  function leerVols() { const f = archivoVol(); if (!f) return {}; try { const d = JSON.parse(fs.readFileSync(f, 'utf8')); return d && typeof d.items === 'object' && d.items ? d.items : {}; } catch { return {}; } }
+  function recordarVol(id, vol, nombre) {
+    const f = archivoVol(); if (!f || !ID_RE.test(String(id)) || !Number.isFinite(vol) || vol < 0 || vol > 100) return;
+    try {
+      const items = leerVols(); items[id] = { vol: Math.round(vol), nombre: String(nombre || '').slice(0, 80) };
+      const ks = Object.keys(items); if (ks.length > 40) delete items[ks[0]];
+      fs.mkdirSync(path.dirname(f), { recursive: true });
+      fs.writeFileSync(f + '.tmp', JSON.stringify({ v: 1, items }, null, 1), 'utf8'); fs.renameSync(f + '.tmp', f);
+    } catch {}
+  }
+  const volRecordado = (id) => { const x = leerVols()[id]; return x && Number.isFinite(x.vol) && x.vol > 0 ? x.vol : null; };
   const temporales = new Map(); // id del micrófono → { timer, hasta, nombre }
   let avisar = () => {};
   const duracionTexto = (s) => {
@@ -272,19 +285,21 @@ module.exports = function registerAudioControl(registry, bridge) {
   async function estadoSilencios() {
     const sil = (dir, L) => L.todos.filter((x) => x.silenciado === true).map((x) => {
       const t = temporales.get(x.id);
-      return { dir, id: x.id, nombre: L.etiqueta(x), predeterminado: !!x.predeterminado, hasta: t ? t.hasta : null };
+      return { dir, id: x.id, nombre: L.etiqueta(x), nombreWindows: x.nombre || '', predeterminado: !!x.predeterminado, hasta: t ? t.hasta : null };
     });
-    const items = [];
-    items.push(...sil('entrada', await leerDisp('entrada')));
-    items.push(...sil('salida', await leerDisp('salida')));
-    return { items };
+    const en = (L) => { const d = L.todos.find((x) => x.predeterminado); return d ? { id: d.id, nombre: L.etiqueta(d), nombreWindows: d.nombre || '', silenciado: d.silenciado === true } : null; };
+    const items = [], uso = {};
+    const LE = await leerDisp('entrada'), LS = await leerDisp('salida');
+    items.push(...sil('entrada', LE)); items.push(...sil('salida', LS));
+    uso.entrada = en(LE); uso.salida = en(LS); // lo que el equipo (Windows) tiene en uso ahora
+    return { items, uso };
   }
   let notificando = false;
   async function notificarEstado() {
     if (notificando) return; notificando = true;
     try {
       const e = await estadoSilencios();
-      const k = JSON.stringify(e.items.map((x) => [x.id, x.hasta]));
+      const k = JSON.stringify([e.items.map((x) => [x.id, x.hasta]), e.uso && e.uso.entrada && e.uso.entrada.id, e.uso && e.uso.salida && e.uso.salida.id]);
       if (k !== ultimoEstado) { ultimoEstado = k; emitirEstado(e); }
     } catch {} finally { notificando = false; }
   }
@@ -299,7 +314,11 @@ module.exports = function registerAudioControl(registry, bridge) {
     let ok = false;
     for (let i = 0; i < 2 && !ok; i++) {
       try {
-        await bridge.request('audio.nivel_dispositivo', { id, nivel: -1, silencio: 0 }, { module: 'audio-control', timeout: 30000 });
+        let antes = (await leerMics()).todos.find((x) => x.id === id);
+        if (!antes) antes = ((await leerAudio(bridge, 'salida')).dispositivos || []).find((x) => x.id === id);
+        const rec = volRecordado(id);
+        const nivel = rec != null && antes && antes.volumen != null && Math.abs(antes.volumen - rec) > 2 ? rec : -1; // solo si algo lo movió mientras estaba en silencio
+        await bridge.request('audio.nivel_dispositivo', { id, nivel, silencio: 0 }, { module: 'audio-control', timeout: 30000 });
         let dv = (await leerMics()).todos.find((x) => x.id === id);
         if (!dv) dv = ((await leerAudio(bridge, 'salida')).dispositivos || []).find((x) => x.id === id);
         ok = !!dv && dv.silenciado === false;
@@ -324,7 +343,7 @@ module.exports = function registerAudioControl(registry, bridge) {
     recuperar, liberar, hayTemporales: () => temporales.size > 0,
     setAvisar: (fn) => { avisar = typeof fn === 'function' ? fn : () => {}; },
     setEstado: (fn) => { emitirEstado = typeof fn === 'function' ? fn : () => {}; ultimoEstado = ''; },
-    estado: async () => { try { const e = await estadoSilencios(); ultimoEstado = JSON.stringify(e.items.map((x) => [x.id, x.hasta])); return e; } catch { return { items: [] }; } },
+    estado: async () => { try { const e = await estadoSilencios(); ultimoEstado = JSON.stringify([e.items.map((x) => [x.id, x.hasta]), e.uso && e.uso.entrada && e.uso.entrada.id, e.uso && e.uso.salida && e.uso.salida.id]); return e; } catch { return { items: [], uso: {} }; } },
     iniciarSondeo,
   };
 
@@ -396,7 +415,9 @@ module.exports = function registerAudioControl(registry, bridge) {
         const paso = a.paso || 10;
         const objetivos = sel.lista.map((d) => {
           const actual = d.volumen == null ? 0 : d.volumen;
-          return { id: d.id, nombre: L.etiqueta(d), actual, nivel: a.accion === 'subir' ? Math.min(100, actual + paso) : a.accion === 'bajar' ? Math.max(0, actual - paso) : objetivo };
+          let nivel = a.accion === 'subir' ? Math.min(100, actual + paso) : a.accion === 'bajar' ? Math.max(0, actual - paso) : objetivo, restaurar = false;
+          if (a.accion === 'activar_sonido') { const rec = volRecordado(d.id); if (rec != null && d.volumen != null && Math.abs(d.volumen - rec) > 2) { nivel = rec; restaurar = true; } } // el volumen cambió mientras estaba en silencio: vuelve al de antes
+          return { id: d.id, nombre: L.etiqueta(d), actual, nivel, restaurar, yaSilenciado: d.silenciado === true };
         });
         const quien = objetivos.length > 1 ? `todos (${objetivos.length})` : objetivos[0].nombre;
         return { resolved: { dir, enUso: !!sel.enUso, objetivos, silencio, segundos: a.accion === 'silenciar' && a.segundos ? a.segundos : 0 }, resumen: `${a.accion} ${cosa} ${quien}` };
@@ -404,6 +425,7 @@ module.exports = function registerAudioControl(registry, bridge) {
       async run(a, r) {
         const obj = r.objetivos || [];
         if (!obj.length || obj.some((o) => !ID_RE.test(String(o.id)))) return { ok: false, mensaje: 'Identificador de dispositivo no válido.' };
+        if (r.silencio === 1) for (const o of obj) if (!o.yaSilenciado && o.actual > 0) recordarVol(o.id, o.actual, o.nombre); // el volumen que tenía justo antes de silenciar
         for (const o of obj) {
           try { await bridge.request('audio.nivel_dispositivo', { id: o.id, nivel: o.nivel == null ? -1 : o.nivel, silencio: r.silencio }, { module: 'audio-control', timeout: 30000 }); }
           catch (e) { return { ok: false, mensaje: `No pude cambiar ${entrada ? 'el micrófono' : 'la salida'} (${o.nombre}): ${e.message}` }; }
@@ -420,7 +442,9 @@ module.exports = function registerAudioControl(registry, bridge) {
           const okVol = o.nivel == null || (!!ahora && ahora.volumen != null && Math.abs(ahora.volumen - o.nivel) <= (entrada ? 3 : 1)); // los micrófonos suben por pasos algo más gruesos
           const okMute = r.silencio < 0 || (!!ahora && ahora.silenciado === (r.silencio === 1));
           if (!(okVol && okMute)) todoOk = false;
-          if (o.nivel != null) partes.push(r.enUso && entrada ? `El micrófono en uso (${o.nombre}) está ahora al ${ahora && ahora.volumen != null ? ahora.volumen : o.nivel}% (antes ${o.actual}%)` : `Volumen de ${o.nombre}: ${o.actual}% → ${ahora && ahora.volumen != null ? ahora.volumen : o.nivel}%`);
+          if (okVol && o.nivel != null && !o.restaurar && r.silencio < 0) recordarVol(o.id, ahora.volumen == null ? o.nivel : ahora.volumen, o.nombre); // ajuste hecho a propósito: es el nuevo volumen a recordar
+          if (o.restaurar) partes.push(`Volumen de ${o.nombre} restaurado al ${ahora && ahora.volumen != null ? ahora.volumen : o.nivel}% (había cambiado a ${o.actual}%)`);
+          else if (o.nivel != null) partes.push(r.enUso && entrada ? `El micrófono en uso (${o.nombre}) está ahora al ${ahora && ahora.volumen != null ? ahora.volumen : o.nivel}% (antes ${o.actual}%)` : `Volumen de ${o.nombre}: ${o.actual}% → ${ahora && ahora.volumen != null ? ahora.volumen : o.nivel}%`);
         }
         const lista = obj.map((o) => o.nombre).join(', ');
         const sujeto = entrada ? 'Micrófono' : 'Salida', silenciado = entrada ? 'silenciado' : 'silenciada', activado = entrada ? 'activado' : 'activada';
