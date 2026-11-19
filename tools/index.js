@@ -11,6 +11,7 @@ require('./diagnostic')(registry, bridge);
 require('./audio')(registry, bridge); // etapa 2: audio de solo lectura
 const audioCtl = require('./audio-control')(registry, bridge); // etapa 3: volumen por app, dispositivos y silencio temporal del micrófono
 const memoria = require('./memoria')(registry); // etapa 4: memoria permanente (recordar procesos, datos y preferencias)
+require('./energia')(registry); // planes de energía de Windows (listar y cambiar), con powercfg
 // Etapas siguientes (aún no incluidas):
 //   require('./apps')(registry, bridge);
 //   require('./browser-tools')(registry, bridge);
