@@ -267,17 +267,46 @@ module.exports = function registerAudioControl(registry, bridge) {
     temporales.set(id, { timer, hasta: Date.now() + ms, nombre });
     guardarTemporales();
   }
+  // ---- Estado visible en pantalla: qué entradas/salidas están silenciadas (y cuánto falta si es temporal) ----
+  let emitirEstado = () => {}, ultimoEstado = '', sondeo = null;
+  async function estadoSilencios() {
+    const sil = (dir, L) => L.todos.filter((x) => x.silenciado === true).map((x) => {
+      const t = temporales.get(x.id);
+      return { dir, id: x.id, nombre: L.etiqueta(x), predeterminado: !!x.predeterminado, hasta: t ? t.hasta : null };
+    });
+    const items = [];
+    items.push(...sil('entrada', await leerDisp('entrada')));
+    items.push(...sil('salida', await leerDisp('salida')));
+    return { items };
+  }
+  let notificando = false;
+  async function notificarEstado() {
+    if (notificando) return; notificando = true;
+    try {
+      const e = await estadoSilencios();
+      const k = JSON.stringify(e.items.map((x) => [x.id, x.hasta]));
+      if (k !== ultimoEstado) { ultimoEstado = k; emitirEstado(e); }
+    } catch {} finally { notificando = false; }
+  }
+  function iniciarSondeo() { // revisa cada 8 s: también ve lo que silencias a mano en Windows
+    if (sondeo) return;
+    sondeo = setInterval(() => { notificarEstado(); }, 8000);
+    if (sondeo.unref) sondeo.unref();
+    notificarEstado();
+  }
   async function reactivar(id, nombre) {
     cancelarTemporal(id);
     let ok = false;
     for (let i = 0; i < 2 && !ok; i++) {
       try {
         await bridge.request('audio.nivel_dispositivo', { id, nivel: -1, silencio: 0 }, { module: 'audio-control', timeout: 30000 });
-        const m = await leerMics(); const dv = m.todos.find((x) => x.id === id);
+        let dv = (await leerMics()).todos.find((x) => x.id === id);
+        if (!dv) dv = ((await leerAudio(bridge, 'salida')).dispositivos || []).find((x) => x.id === id);
         ok = !!dv && dv.silenciado === false;
       } catch {}
     }
     try { avisar(ok ? `Micrófono activado otra vez${nombre ? ' (' + nombre + ')' : ''}.` : `No pude reactivar el micrófono${nombre ? ' (' + nombre + ')' : ''}. Escríbeme «activa el micrófono» o actívalo en Windows.`); } catch {}
+    notificarEstado();
     return ok;
   }
   async function recuperar() { // al abrir Radex: reactiva (o retoma) lo que quedó en silencio temporal
@@ -291,60 +320,148 @@ module.exports = function registerAudioControl(registry, bridge) {
     }
   }
   async function liberar() { for (const [id, t] of [...temporales]) await reactivar(id, t.nombre); } // al cerrar Radex
-  tempCtl = { recuperar, liberar, hayTemporales: () => temporales.size > 0, setAvisar: (fn) => { avisar = typeof fn === 'function' ? fn : () => {}; } };
+  tempCtl = {
+    recuperar, liberar, hayTemporales: () => temporales.size > 0,
+    setAvisar: (fn) => { avisar = typeof fn === 'function' ? fn : () => {}; },
+    setEstado: (fn) => { emitirEstado = typeof fn === 'function' ? fn : () => {}; ultimoEstado = ''; },
+    estado: async () => { try { const e = await estadoSilencios(); ultimoEstado = JSON.stringify(e.items.map((x) => [x.id, x.hasta])); return e; } catch { return { items: [] }; } },
+    iniciarSondeo,
+  };
 
-  // Volumen y silencio del MICRÓFONO que está en uso (el predeterminado de Windows)
-  registry.register({
-    name: 'audio_microfono_volumen',
-    risk: 'safe',
-    description: 'Cambia el volumen o el silencio del MICRÓFONO que está en uso (el predeterminado de Windows); no toca el volumen de salida. Úsala con “silencia el micrófono”, “activa el micrófono”, “sube / baja el micrófono”, “pon el micrófono al 80”. Para el volumen de los parlantes o del PC usa ajustar_volumen; para cambiar de micrófono usa audio_cambiar_microfono. Silenciar el micrófono en Windows lo silencia para todas las aplicaciones (Discord, Zoom, el navegador…) y también para Radex, que no podrá oír hasta que se reactive. SILENCIO TEMPORAL: si el usuario dice una duración (“silencia el micrófono por 5 segundos / 2 minutos / una hora”), usa silenciar con segundos (conviértela: 5 segundos → 5; 2 minutos → 120; una hora → 3600) y el micrófono se reactiva solo.',
-    schema: {
-      properties: {
-        accion: { type: 'string', enum: ['establecer', 'subir', 'bajar', 'silenciar', 'activar_sonido'], description: 'establecer necesita porcentaje; subir y bajar usan paso (10 por defecto)' },
-        porcentaje: { type: 'integer', minimum: 0, maximum: 100, description: 'Volumen de 0 a 100 (solo con establecer)' },
-        paso: { type: 'integer', minimum: 1, maximum: 100, description: 'Cuánto subir o bajar (por defecto 10)' },
-        segundos: { type: 'integer', minimum: 1, maximum: 43200, description: 'Solo con silenciar: silencio temporal. Pasados estos segundos el micrófono se reactiva solo (máximo 12 horas)' },
-      },
-      required: ['accion'],
-    },
-    async plan(a) {
-      let m;
-      try { m = await leerMics(); } catch (e) { return { fail: 'No pude leer el audio de Windows: ' + e.message }; }
-      const def = m.todos.find((x) => x.predeterminado);
-      if (!def) return { fail: 'Windows no muestra ningún micrófono en uso.' };
-      if (!ID_RE.test(String(def.id))) return { fail: 'Windows dio un identificador de dispositivo que no reconozco; no cambio nada.' };
-      const actual = def.volumen == null ? 0 : def.volumen;
-      let objetivo = null, silencio = -1;
-      switch (a.accion) {
-        case 'establecer':
-          if (a.porcentaje == null) return { fail: 'Falta el porcentaje de volumen (0 a 100).' };
-          objetivo = a.porcentaje; break;
-        case 'subir': objetivo = Math.min(100, actual + (a.paso || 10)); break;
-        case 'bajar': objetivo = Math.max(0, actual - (a.paso || 10)); break;
-        case 'silenciar': silencio = 1; break;
-        case 'activar_sonido': silencio = 0; break;
-        default: return { fail: 'Acción no válida.' };
+  // ---- Volumen y silencio de UN dispositivo (el que está en uso, uno concreto o todos), de entrada o de salida ----
+  const leerDisp = async (dir) => {
+    if (dir === 'entrada') { const m = await leerMics(); return { todos: m.todos, devs: m.devs, mapa: m.mapa, etiqueta: (x) => etiquetaMic(x, m.mapa) }; }
+    const d = await leerAudio(bridge, 'salida'); const todos = Array.isArray(d.dispositivos) ? d.dispositivos : [];
+    return { todos, devs: todos, mapa: null, etiqueta: (x) => etiquetaSalida(x) };
+  };
+  // Qué dispositivo(s) pide el usuario: vacío o «en uso» = el predeterminado; «todos» = todos los activos; categoría o parte del nombre = ese
+  function elegirDisp(dir, L, texto) {
+    const q = norm(texto), cosa = dir === 'entrada' ? 'micrófono' : 'dispositivo de salida';
+    if (!q || /^(en uso|actual|predeterminado|principal|el que uso|el que estoy usando)$/.test(q)) {
+      const def = L.todos.find((x) => x.predeterminado);
+      return def ? { lista: [def], enUso: true } : { fail: `Windows no muestra ningún ${cosa} en uso.` };
+    }
+    if (/\b(todos|todas)\b/.test(q)) return L.devs.length ? { lista: L.devs.slice() } : { fail: `Windows no muestra ningún ${cosa} activo.` };
+    let match;
+    if (dir === 'entrada') {
+      let cat = null;
+      if (/inalambric|wireless|bluetooth|corsair|airpods|buds|auricular|audifono|headset|casco|diadema/.test(q)) cat = 'auriculares';
+      else if (/laptop|portatil|integrad|interno|compu|\bpc\b|array|matriz/.test(q)) cat = 'laptop';
+      else if (/externo|usb|jack|conector|afuera/.test(q)) cat = 'externo';
+      if (cat) {
+        match = L.devs.filter((x) => L.mapa.get(x) === cat);
+        if (!match.length) return { fail: `No tengo identificado ${ETIQUETA_ENTRADA[cat]}. Los micrófonos activos son: ${listaMics(L.devs)}. Dime cuál es, por ejemplo: «el micrófono Realtek es el de la laptop», y lo recordaré.` };
+      } else match = L.devs.filter((x) => norm(x.nombre).includes(q));
+      if (!match.length) return { fail: `No encuentro un micrófono llamado «${texto}». Los activos son: ${listaMics(L.devs)}.` };
+    } else {
+      const pc = porCategoria(L.devs, texto);
+      if (pc) {
+        match = pc.match;
+        if (!match.length) return { fail: `No encuentro ${pc.cat.nombre} entre los dispositivos activos. Ahora veo: ${L.devs.map((x) => x.nombre).join(', ')}.` };
+      } else {
+        const needle = ALIAS_DEV[q] || q;
+        match = L.devs.filter((x) => norm(x.nombre).includes(needle));
+        if (!match.length) return { fail: `No encuentro un dispositivo llamado «${texto}». Los activos son: ${L.devs.map((x) => x.nombre).join(', ')}.` };
       }
-      return { resolved: { id: def.id, nombre: etiquetaMic(def, m.mapa), objetivo, silencio, actual, segundos: a.accion === 'silenciar' && a.segundos ? a.segundos : 0 }, resumen: `${a.accion} micrófono ${etiquetaMic(def, m.mapa)}` };
-    },
-    async run(a, r) {
-      if (!ID_RE.test(String(r.id))) return { ok: false, mensaje: 'Identificador de dispositivo no válido.' };
-      try { await bridge.request('audio.nivel_dispositivo', { id: r.id, nivel: r.objetivo == null ? -1 : r.objetivo, silencio: r.silencio }, { module: 'audio-control', timeout: 30000 }); }
-      catch (e) { return { ok: false, mensaje: 'No pude cambiar el micrófono: ' + e.message }; }
-      // Silencio temporal: el temporizador se arma ya (aunque falle la comprobación) para que nunca quede silenciado de más
-      if (r.silencio === 1 && r.segundos) programar(r.id, r.nombre, r.segundos * 1000);
-      else if (r.silencio >= 0) cancelarTemporal(r.id); // silencio permanente, o activar el sonido: se anula cualquier temporizador
-      let m2;
-      try { m2 = await leerMics(); } catch { return { ok: true, verified: false, mensaje: `Cambié el micrófono (${r.nombre}), pero no pude comprobar cómo quedó.` }; }
-      const ahora = m2.todos.find((x) => x.id === r.id);
-      const okVol = r.objetivo == null || (!!ahora && ahora.volumen != null && Math.abs(ahora.volumen - r.objetivo) <= 3); // los micrófonos suben por pasos algo más gruesos
-      const okMute = r.silencio < 0 || (!!ahora && ahora.silenciado === (r.silencio === 1));
+    }
+    if (match.length > 1) return { clarify: { motivo: `«${texto}» coincide con varios dispositivos.`, opciones: match.map((x) => x.nombre) } };
+    return { lista: match };
+  }
+
+  function registrarNivel(name, dir, description, dispDesc) {
+    const entrada = dir === 'entrada', cosa = entrada ? 'micrófono' : 'salida';
+    registry.register({
+      name, risk: 'safe', description,
+      schema: {
+        properties: {
+          dispositivo: { type: 'string', maxLength: 80, description: dispDesc },
+          accion: { type: 'string', enum: ['establecer', 'subir', 'bajar', 'silenciar', 'activar_sonido'], description: 'establecer necesita porcentaje; subir y bajar usan paso (10 por defecto)' },
+          porcentaje: { type: 'integer', minimum: 0, maximum: 100, description: 'Volumen de 0 a 100 (solo con establecer)' },
+          paso: { type: 'integer', minimum: 1, maximum: 100, description: 'Cuánto subir o bajar (por defecto 10)' },
+          segundos: { type: 'integer', minimum: 1, maximum: 43200, description: 'Solo con silenciar: silencio temporal. Pasados estos segundos se reactiva solo (máximo 12 horas)' },
+        },
+        required: ['accion'],
+      },
+      async plan(a) {
+        let L;
+        try { L = await leerDisp(dir); } catch (e) { return { fail: 'No pude leer el audio de Windows: ' + e.message }; }
+        const sel = elegirDisp(dir, L, a.dispositivo);
+        if (sel.fail || sel.clarify) return sel;
+        for (const d of sel.lista) if (!ID_RE.test(String(d.id))) return { fail: 'Windows dio un identificador de dispositivo que no reconozco; no cambio nada.' };
+        let objetivo = null, silencio = -1;
+        if (a.accion === 'establecer') { if (a.porcentaje == null) return { fail: 'Falta el porcentaje de volumen (0 a 100).' }; objetivo = a.porcentaje; }
+        else if (a.accion === 'silenciar') silencio = 1;
+        else if (a.accion === 'activar_sonido') silencio = 0;
+        else if (a.accion !== 'subir' && a.accion !== 'bajar') return { fail: 'Acción no válida.' };
+        const paso = a.paso || 10;
+        const objetivos = sel.lista.map((d) => {
+          const actual = d.volumen == null ? 0 : d.volumen;
+          return { id: d.id, nombre: L.etiqueta(d), actual, nivel: a.accion === 'subir' ? Math.min(100, actual + paso) : a.accion === 'bajar' ? Math.max(0, actual - paso) : objetivo };
+        });
+        const quien = objetivos.length > 1 ? `todos (${objetivos.length})` : objetivos[0].nombre;
+        return { resolved: { dir, enUso: !!sel.enUso, objetivos, silencio, segundos: a.accion === 'silenciar' && a.segundos ? a.segundos : 0 }, resumen: `${a.accion} ${cosa} ${quien}` };
+      },
+      async run(a, r) {
+        const obj = r.objetivos || [];
+        if (!obj.length || obj.some((o) => !ID_RE.test(String(o.id)))) return { ok: false, mensaje: 'Identificador de dispositivo no válido.' };
+        for (const o of obj) {
+          try { await bridge.request('audio.nivel_dispositivo', { id: o.id, nivel: o.nivel == null ? -1 : o.nivel, silencio: r.silencio }, { module: 'audio-control', timeout: 30000 }); }
+          catch (e) { return { ok: false, mensaje: `No pude cambiar ${entrada ? 'el micrófono' : 'la salida'} (${o.nombre}): ${e.message}` }; }
+          // Silencio temporal: el temporizador se arma ya (aunque falle la comprobación) para que nunca quede silenciado de más
+          if (r.silencio === 1 && r.segundos) programar(o.id, o.nombre, r.segundos * 1000);
+          else if (r.silencio >= 0) cancelarTemporal(o.id); // silencio permanente, o activar el sonido: se anula cualquier temporizador
+        }
+        notificarEstado();
+        let L2;
+        try { L2 = await leerDisp(dir); } catch { return { ok: true, verified: false, mensaje: `Cambié ${entrada ? 'el micrófono' : 'la salida'} (${obj.map((o) => o.nombre).join(', ')}), pero no pude comprobar cómo quedó.` }; }
+        let todoOk = true; const partes = [];
+        for (const o of obj) {
+          const ahora = L2.todos.find((x) => x.id === o.id);
+          const okVol = o.nivel == null || (!!ahora && ahora.volumen != null && Math.abs(ahora.volumen - o.nivel) <= (entrada ? 3 : 1)); // los micrófonos suben por pasos algo más gruesos
+          const okMute = r.silencio < 0 || (!!ahora && ahora.silenciado === (r.silencio === 1));
+          if (!(okVol && okMute)) todoOk = false;
+          if (o.nivel != null) partes.push(r.enUso && entrada ? `El micrófono en uso (${o.nombre}) está ahora al ${ahora && ahora.volumen != null ? ahora.volumen : o.nivel}% (antes ${o.actual}%)` : `Volumen de ${o.nombre}: ${o.actual}% → ${ahora && ahora.volumen != null ? ahora.volumen : o.nivel}%`);
+        }
+        const lista = obj.map((o) => o.nombre).join(', ');
+        const sujeto = entrada ? 'Micrófono' : 'Salida', silenciado = entrada ? 'silenciado' : 'silenciada', activado = entrada ? 'activado' : 'activada';
+        if (r.silencio === 1) partes.push(r.segundos ? `${sujeto} ${silenciado} por ${duracionTexto(r.segundos)} (${lista}). Se reactivará solo` : `${sujeto} ${silenciado} (${lista})`);
+        if (r.silencio === 0) partes.push(`${sujeto} ${activado} otra vez (${lista})`);
+        if (todoOk) return { ok: true, verified: true, mensaje: partes.join('. ') + '.' };
+        return { ok: true, verified: false, mensaje: `Pedí el cambio (${lista}), pero Windows no muestra el resultado esperado.` };
+      },
+    });
+  }
+  registrarNivel('audio_microfono_volumen', 'entrada',
+    'Cambia el volumen o el silencio de un MICRÓFONO (dispositivo de ENTRADA); no toca el volumen de salida. Sin «dispositivo» actúa sobre el micrófono en uso (el predeterminado de Windows). Úsala con “silencia el micrófono”, “activa el micrófono”, “sube / baja el micrófono”, “pon el micrófono al 80”, y también para uno concreto: “silencia el micrófono externo”, “silencia el micrófono de la laptop”, “silencia el micrófono de los audífonos” (dispositivo: externo / laptop / auriculares) o “silencia todos los micrófonos” (dispositivo: todos). Para el volumen de los parlantes o del PC usa ajustar_volumen o audio_salida_volumen; para cambiar de micrófono usa audio_cambiar_microfono. Silenciar un micrófono en Windows lo silencia para todas las aplicaciones (Discord, Zoom…) y, si es el que está en uso, también para Radex, que no podrá oír hasta que se reactive. SILENCIO TEMPORAL: si el usuario dice una duración (“silencia el micrófono por 5 segundos / 2 minutos / una hora”), usa silenciar con segundos (conviértela: 5 segundos → 5; 2 minutos → 120; una hora → 3600) y el micrófono se reactiva solo.',
+    'Opcional. Vacío = el micrófono en uso. laptop (micrófono de la laptop), externo (USB), auriculares (audífonos inalámbricos o Corsair), todos (todos los micrófonos) o parte del nombre del micrófono');
+  registrarNivel('audio_salida_volumen', 'salida',
+    'Cambia el volumen o el silencio de un dispositivo de SALIDA concreto (parlantes de la laptop, auriculares con cable, audífonos inalámbricos/Corsair, HDMI…) sin cambiar cuál es el predeterminado. Úsala con “silencia los audífonos inalámbricos”, “silencia los parlantes de la laptop”, “quita el silencio de los auriculares”, “silencia todas las salidas” (dispositivo: laptop / auriculares / inalambricos / todos / parte del nombre). Sin «dispositivo» actúa sobre la salida en uso. Si solo piden subir, bajar o silenciar “el volumen” del PC sin nombrar un dispositivo, usa ajustar_volumen. Admite silencio temporal con segundos.',
+    'Opcional. Vacío = la salida en uso. laptop (parlantes de la laptop), auriculares (con cable), inalambricos (o corsair), todos, o parte del nombre del dispositivo');
+
+  // Qué está silenciado ahora mismo (entradas y salidas) y, si es temporal, cuánto falta
+  registry.register({
+    name: 'audio_silenciados',
+    risk: 'safe',
+    description: 'SOLO LECTURA: dice qué dispositivos de audio están SILENCIADOS ahora mismo, tanto micrófonos (entrada) como salidas (parlantes, auriculares), y cuánto falta para que se reactiven si el silencio es temporal. Úsala con “¿qué tengo silenciado?”, “¿qué micrófono está silenciado?”, “¿qué salida está silenciada?”, “¿hay algo en silencio?”. cual: entrada, salida o ambos (por defecto ambos).',
+    schema: { properties: { cual: { type: 'string', enum: ['ambos', 'salida', 'entrada'], description: 'entrada = micrófonos; salida = parlantes/auriculares; ambos = los dos (por defecto)' } }, required: [] },
+    async run(a) {
+      const cual = a.cual === 'salida' || a.cual === 'entrada' ? a.cual : 'ambos';
+      const dirs = cual === 'ambos' ? ['entrada', 'salida'] : [cual];
       const partes = [];
-      if (r.objetivo != null) partes.push(`El micrófono en uso (${r.nombre}) está ahora al ${ahora && ahora.volumen != null ? ahora.volumen : r.objetivo}% (antes ${r.actual}%)`);
-      if (r.silencio === 1) partes.push(r.segundos ? `Micrófono silenciado por ${duracionTexto(r.segundos)} (${r.nombre}). Se reactivará solo` : `Micrófono silenciado (${r.nombre})`);
-      if (r.silencio === 0) partes.push(`Micrófono activado otra vez (${r.nombre})`);
-      if (okVol && okMute) return { ok: true, verified: true, mensaje: partes.join('. ') + '.' };
-      return { ok: true, verified: false, mensaje: `Pedí el cambio del micrófono (${r.nombre}), pero Windows no muestra el resultado esperado.` };
+      for (const dir of dirs) {
+        let L;
+        try { L = await leerDisp(dir); } catch (e) { return { ok: false, mensaje: 'No pude leer el audio de Windows: ' + e.message }; }
+        const sil = L.todos.filter((x) => x.silenciado === true);
+        const titulo = dir === 'entrada' ? 'Micrófonos' : 'Salidas';
+        if (!sil.length) { partes.push(`${titulo}: ninguno está silenciado`); continue; }
+        partes.push(`${titulo} silenciados: ` + sil.map((x) => {
+          const t = temporales.get(x.id);
+          const falta = t ? Math.max(1, Math.round((t.hasta - Date.now()) / 1000)) : 0;
+          return L.etiqueta(x) + (x.predeterminado ? ' (en uso)' : '') + (t ? `, se reactiva en ${duracionTexto(falta)}` : '');
+        }).join('; '));
+      }
+      notificarEstado();
+      return { ok: true, verified: true, mensaje: partes.join('. ') + '.' };
     },
   });
 

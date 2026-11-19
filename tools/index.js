@@ -21,6 +21,7 @@ module.exports = {
     const dd = dataDir || (logFile ? require('path').dirname(logFile) : null);
     memoria.setDir(dd); // memoria.json vive junto al registro de acciones
     require('./audio-nombres').setDir(dd); // dispositivos-audio.json (qué micrófono es cuál) también
+    const t2 = setTimeout(() => { audioCtl.iniciarSondeo(); }, 7000); if (t2.unref) t2.unref(); // empieza a vigilar qué está silenciado (para mostrarlo en pantalla)
     const t = setTimeout(() => { audioCtl.recuperar().catch(() => {}); }, 5000); // un silencio temporal que quedó pendiente se reactiva (o se retoma) al abrir
     if (t.unref) t.unref();
   },
@@ -28,6 +29,8 @@ module.exports = {
   run: (name, args) => registry.invoke(name, args),
   confirm: (accept) => registry.confirm(!!accept),
   setAvisar: (fn) => audioCtl.setAvisar(fn), // textos que Radex debe decir por su cuenta (p. ej. «Micrófono activado otra vez»)
+  setEstadoAudio: (fn) => audioCtl.setEstado(fn), // qué entradas/salidas están silenciadas (y cuánto falta): se muestra en pantalla
+  estadoAudio: () => audioCtl.estado(),
   hayTemporales: () => audioCtl.hayTemporales(),
   liberar: () => audioCtl.liberar(),
   shutdown: () => bridge.stop(),
