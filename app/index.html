@@ -1436,7 +1436,39 @@ function similares(a, b) { // casi idéntica: mismas cifras y al menos 90 % de p
   const sa = new Set(A), sb = new Set(B); let n = 0; sa.forEach((x) => { if (sb.has(x)) n++; });
   return n / Math.max(sa.size, sb.size) >= 0.9;
 }
-function buscarAtajo(text) { const k = claveAtajo(text); return k ? (ATAJOS.items.find((x) => similares(k, x.f)) || null) : null; }
+// ---- Órdenes con número variable: «pon el volumen en 51» y «pon el volumen en 80» son UNA sola orden ----
+const NUM_PALABRAS = { cero: 0, uno: 1, un: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12, trece: 13, catorce: 14, quince: 15, dieciseis: 16, diecisiete: 17, dieciocho: 18, diecinueve: 19, veinte: 20, veintiuno: 21, veintiun: 21, veintidos: 22, veintitres: 23, veinticuatro: 24, veinticinco: 25, veintiseis: 26, veintisiete: 27, veintiocho: 28, veintinueve: 29, treinta: 30, cuarenta: 40, cincuenta: 50, sesenta: 60, setenta: 70, ochenta: 80, noventa: 90, cien: 100 };
+const esNumPalabra = (w) => Object.prototype.hasOwnProperty.call(NUM_PALABRAS, w);
+const NUM_RELLENO = new Set(['ciento', 'porciento', 'porcentaje']);
+function plantillaNumero(k) { // «pon volumen en 51» -> { tpl: 'pon volumen en #', n: 51 }; entiende cifras y palabras («cincuenta y cinco»)
+  const w = String(k).split(' ').filter((x) => x && !NUM_RELLENO.has(x));
+  for (let i = 0; i < w.length; i++) {
+    let n = null, len = 0;
+    if (/^\d{1,3}$/.test(w[i])) { n = parseInt(w[i], 10); len = 1; }
+    else if (esNumPalabra(w[i])) {
+      n = NUM_PALABRAS[w[i]]; len = 1;
+      if (n >= 30 && n <= 90 && w[i + 1] === 'y' && esNumPalabra(w[i + 2] || '') && NUM_PALABRAS[w[i + 2]] >= 1 && NUM_PALABRAS[w[i + 2]] <= 9) { n += NUM_PALABRAS[w[i + 2]]; len = 3; }
+    }
+    if (len) return { n, tpl: [...w.slice(0, i), '#', ...w.slice(i + len)].join(' ') };
+  }
+  return null;
+}
+const esVariable = (x) => !!x && typeof x.f === 'string' && x.f.includes('#') && !!x.a && Object.values(x.a).includes('$');
+const claveVar = (x) => Object.keys(x.a).find((q) => x.a[q] === '$');
+const VAR_RELLENO = new Set(['sube', 'subir', 'baja', 'bajar', 'pon', 'poner', 'ponlo', 'deja', 'dejalo', 'dejar', 'establece', 'ajusta', 'cambia', 'coloca', 'lleva', 'a', 'en', 'al', 'hasta', 'de']);
+const sinVerbos = (t) => String(t).split(' ').filter((w) => !VAR_RELLENO.has(w)).join(' '); // «sube / baja / pon … a / en» dan igual: lo que cuenta es la cosa y el número
+const fraseAtajo = (x) => String(x.f).replace('#', '[número]');
+function buscarAtajo(text) {
+  const k = claveAtajo(text); if (!k) return null;
+  const fijo = ATAJOS.items.find((x) => !esVariable(x) && similares(k, x.f));
+  if (fijo) return fijo;
+  const pn = plantillaNumero(k);
+  if (pn && pn.n >= 0 && pn.n <= 100) {
+    const v = ATAJOS.items.find((x) => !x.r && esVariable(x) && similares(sinVerbos(pn.tpl), sinVerbos(x.f)));
+    if (v) { v._num = pn.n; return v; }
+  }
+  return null;
+}
 const preguntaConfirmacion = (resumen) => String(resumen || 'Voy a hacerlo').replace(/[.\s]+$/, '') + '. ¿Lo confirmas?';
 function resultadoAccion(name, out) { // 'ok' (hecho y comprobado), 'pend' (espera tu confirmación) o null (falló / no comprobado)
   out = String(out || '').trim();
@@ -1552,10 +1584,12 @@ async function ejecutarAtajo(hit) { // devuelve lo que hay que decir, o null par
   if (hit.t === 'ctl_dormir' || hit.t === 'ctl_despertar') return controlAtajo(hit);
   const t = [...ALL_TOOLS, ...REG_TOOLS].find((x) => x.name === hit.t);
   if (!t || !LEARNABLE.has(hit.t)) return null;
+  const args = JSON.parse(JSON.stringify(hit.a || {}));
+  if (esVariable(hit)) { if (hit._num == null) return null; args[claveVar(hit)] = hit._num; delete hit._num; }
   setState('acting', 'Ejecutando');
-  let out; try { out = await t.execute(hit.a || {}); } catch (e) { out = 'Error: ' + (e.message || e); }
+  let out; try { out = await t.execute(args); } catch (e) { out = 'Error: ' + (e.message || e); }
   out = String(out || '');
-  addEl('chip', 'atajo ' + hit.t + ' ' + JSON.stringify(hit.a || {}) + ': ' + out.slice(0, 300));
+  addEl('chip', 'atajo ' + hit.t + ' ' + JSON.stringify(args) + ': ' + out.slice(0, 300));
   const r = resultadoAccion(hit.t, out);
   if (r === 'pend') { const rs = pendingConfirm && pendingConfirm.resumen; if (pendingConfirm) pendingConfirm.ask = false; hit.n = (hit.n | 0) + 1; guardarAtajos(); return preguntaConfirmacion(rs); }
   if (r === 'ok') { hit.n = (hit.n | 0) + 1; hit.x = 0; guardarAtajos(); return out.replace(/^VERIFICADO:\s*/, '').split('\n')[0].trim().slice(0, 300) || 'Listo.'; }
@@ -1598,7 +1632,7 @@ function logFrase(text, r, h) {
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const CATALOGO = [
   { cat: 'Salida de sonido', tools: ['audio_cambiar_dispositivo', 'audio_salida_volumen'], ej: ['Cambia el sonido a los altavoces', 'Pasa el sonido a los audífonos inalámbricos', 'Silencia los parlantes de la laptop', 'Sube el volumen de los auriculares'] },
-  { cat: 'Volumen del PC', tools: ['ajustar_volumen'], ej: ['Sube el volumen', 'Baja el volumen', 'Déjalo en 50', 'Silencia', 'Quita el silencio', '¿Qué volumen tengo?'] },
+  { cat: 'Volumen del PC', tools: ['ajustar_volumen'], ej: ['Sube el volumen', 'Baja el volumen', 'Pon el volumen en 37', 'Déjalo al 80 por ciento', 'Silencia', 'Quita el silencio', '¿Qué volumen tengo?'] },
   { cat: 'Volumen por aplicación', tools: ['audio_volumen_app'], ej: ['Baja el volumen de Spotify', 'Pon Discord al 30', 'Silencia Chrome'] },
   { cat: 'Micrófono', tools: ['audio_cambiar_microfono', 'audio_microfono_volumen', 'audio_asignar_microfono'], ej: ['Cámbiate al micrófono de la laptop', 'Escúchame con el micrófono externo', 'Silencia el micrófono', 'Silencia el micrófono por 30 segundos', 'Sube el micrófono', 'El Realtek es el de la laptop'] },
   { cat: 'Estado y deshacer', tools: ['audio_en_uso', 'audio_silenciados', 'audio_reactivar_todo', 'audio_volver_anterior'], ej: ['¿Qué audio estoy usando?', '¿Qué está silenciado?', 'Reactiva todo', 'Regrésame al micrófono de antes'] },
@@ -1623,11 +1657,12 @@ const PLANTILLAS = [
   ['Micrófono', 'Activar el micrófono en uso', 'audio_microfono_volumen', { accion: 'activar_sonido' }],
   ['Micrófono', 'Subir el micrófono', 'audio_microfono_volumen', { accion: 'subir' }],
   ['Micrófono', 'Bajar el micrófono', 'audio_microfono_volumen', { accion: 'bajar' }],
+  ['Micrófono', 'Dejar el micrófono en CUALQUIER porcentaje, 0 a 100 (una sola orden: el número lo dices al hablar)', 'audio_microfono_volumen', { accion: 'establecer', porcentaje: '$' }, 'variable'],
   ['Volumen del PC', 'Subir el volumen', 'ajustar_volumen', { accion: 'subir' }],
   ['Volumen del PC', 'Bajar el volumen', 'ajustar_volumen', { accion: 'bajar' }],
   ['Volumen del PC', 'Silenciar el PC', 'ajustar_volumen', { accion: 'silenciar' }],
   ['Volumen del PC', 'Quitar el silencio del PC', 'ajustar_volumen', { accion: 'activar_sonido' }],
-  ['Volumen del PC', 'Dejar el volumen en un porcentaje (escribe el número, 0 a 100)', 'ajustar_volumen', { accion: 'establecer', porcentaje: '$' }, 'numero'],
+  ['Volumen del PC', 'Dejar el volumen en CUALQUIER porcentaje, 0 a 100 (una sola orden: el número lo dices al hablar)', 'ajustar_volumen', { accion: 'establecer', porcentaje: '$' }, 'variable'],
   ['Energía', 'Plan de energía: Alto rendimiento', 'energia_cambiar_plan', { plan: 'Alto rendimiento' }],
   ['Energía', 'Plan de energía: GAMER', 'energia_cambiar_plan', { plan: 'GAMER' }],
   ['Energía', 'Cambiar a otro plan de energía (escribe el nombre exacto)', 'energia_cambiar_plan', { plan: '$' }, 'texto'],
@@ -1652,7 +1687,7 @@ function descAtajo(x) {
   const p = PLANTILLAS.find((q) => q[2] === x.t && Object.entries(q[3]).every(([k, v]) => v === '$' ? x.a && x.a[k] != null : x.a && String(x.a[k]) === String(v)));
   if (!p) return x.t + ' ' + JSON.stringify(x.a || {});
   const dato = Object.entries(p[3]).find(([, v]) => v === '$');
-  return p[1].replace(/ \(escribe[^)]*\)/, '') + (dato ? ': ' + x.a[dato[0]] : '');
+  return p[1].replace(/ \(escribe[^)]*\)/, '') + (dato ? ': ' + (x.a[dato[0]] === '$' ? 'el número que digas (0 a 100)' : x.a[dato[0]]) : '');
 }
 const RES_TXT = { atajo: ['Atajo ✓', 'ok'], cerebro: ['Entendida', 'ok'], silencio: ['El cerebro la ignoró', 'no'], 'no-orden': ['No parecía orden', 'no'], ruido: ['Ruido', 'no'], ignorada: ['Ignorada', 'no'] };
 let ordTab = 'conocidas', ordFiltro = 'todas', memCache = null;
@@ -1666,11 +1701,11 @@ function pintarOrd() {
     CATALOGO.forEach((c) => {
       const mios = us.filter((x) => TOOL_CAT[x.t] === c.cat);
       h += '<h3>' + esc(c.cat) + '</h3><p class="m">Ejemplos que entiende (con otras palabras también): ' + c.ej.map((e) => '«' + esc(e) + '»').join(' · ') + '</p>';
-      mios.forEach((x) => { h += '<div class="it"><span>«' + esc(x.f) + '» → ' + esc(descAtajo(x)) + ' <small>(' + (x.n | 0) + ' usos)</small></span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Quitar</button></div>'; });
+      mios.forEach((x) => { h += '<div class="it"><span>«' + esc(fraseAtajo(x)) + '» → ' + esc(descAtajo(x)) + ' <small>(' + (x.n | 0) + ' usos)</small></span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Quitar</button></div>'; });
     });
     const otros = us.filter((x) => !TOOL_CAT[x.t]);
-    if (otros.length) { h += '<h3>Otros atajos</h3>'; otros.forEach((x) => { h += '<div class="it"><span>«' + esc(x.f) + '» → ' + esc(descAtajo(x)) + '</span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Quitar</button></div>'; }); }
-    if (bloq.length) { h += '<h3>Dijiste «no guardar»</h3>'; bloq.forEach((x) => { h += '<div class="it"><span>«' + esc(x.f) + '»</span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Permitir de nuevo</button></div>'; }); }
+    if (otros.length) { h += '<h3>Otros atajos</h3>'; otros.forEach((x) => { h += '<div class="it"><span>«' + esc(fraseAtajo(x)) + '» → ' + esc(descAtajo(x)) + '</span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Quitar</button></div>'; }); }
+    if (bloq.length) { h += '<h3>Dijiste «no guardar»</h3>'; bloq.forEach((x) => { h += '<div class="it"><span>«' + esc(fraseAtajo(x)) + '»</span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Permitir de nuevo</button></div>'; }); }
     $('#ordP1').innerHTML = h;
     $('#ordP1').querySelectorAll('[data-q]').forEach((b) => { b.onclick = () => { ATAJOS.items.splice(+b.dataset.q, 1); guardarAtajos(); pintarOrd(); }; });
   } else if (ordTab === 'oido') {
@@ -1699,7 +1734,7 @@ function pintarOrd() {
 (function initOrd() {
   const sel = $('#ordAccion'); let cat = '', g = null;
   PLANTILLAS.forEach((p, i) => { if (p[0] !== cat) { cat = p[0]; g = document.createElement('optgroup'); g.label = cat; sel.appendChild(g); } g.appendChild(new Option(p[1], String(i))); });
-  const pintaParam = () => { const p = PLANTILLAS[+sel.value]; $('#ordParam').hidden = !p[4]; $('#ordParam').type = p[4] === 'numero' ? 'number' : 'text'; $('#ordParam').placeholder = p[4] === 'numero' ? '0 a 100' : 'nombre'; };
+  const pintaParam = () => { const p = PLANTILLAS[+sel.value]; $('#ordParam').hidden = !p[4] || p[4] === 'variable'; $('#ordMsg').textContent = p[4] === 'variable' ? 'Escribe la frase con un número de ejemplo, p. ej. «pon el volumen en 50». Ese número se cambia por el que digas cada vez.' : ''; $('#ordParam').type = p[4] === 'numero' ? 'number' : 'text'; $('#ordParam').placeholder = p[4] === 'numero' ? '0 a 100' : 'nombre'; };
   sel.onchange = pintaParam; pintaParam();
   document.querySelectorAll('#ord .tab').forEach((b) => { b.onclick = () => { ordTab = b.dataset.t; if (ordTab === 'memoria') memCache = null; pintarOrd(); }; });
   $('#ordBtn').onclick = () => { ordTab = 'conocidas'; memCache = null; $('#ord').showModal(); pintarOrd(); };
@@ -1710,6 +1745,14 @@ function pintarOrd() {
     const frase = $('#ordFrase').value.trim(), p = PLANTILLAS[+sel.value], k = claveAtajo(frase);
     if (!k || k.split(' ').length > 12 || frase.length > 140) return msg('Escribe una frase corta (hasta 12 palabras).');
     if (SECRETO_ATAJO.test(frase)) return msg('Esa frase tiene algo que parece una clave o un número largo; no la guardo.');
+    if (p[4] === 'variable') { // una sola orden para cualquier número
+      const pn = plantillaNumero(k);
+      if (!pn) return msg('Escribe la frase con un número de ejemplo, p. ej. «pon el volumen en 50». Ese número se cambiará por el que digas.');
+      ATAJOS.items = ATAJOS.items.filter((x) => !(esVariable(x) && x.t === p[2] && similares(sinVerbos(pn.tpl), sinVerbos(x.f))));
+      ATAJOS.items.push({ f: pn.tpl, t: p[2], a: JSON.parse(JSON.stringify(p[3])), n: 0, c: Math.floor(Date.now() / 1000) });
+      guardarAtajos(); $('#ordFrase').value = '';
+      return msg('Listo: «' + fraseAtajo({ f: pn.tpl }) + '» funciona con cualquier número de 0 a 100. Ejemplo: «' + pn.tpl.replace('#', '73') + '».');
+    }
     const a = JSON.parse(JSON.stringify(p[3]));
     if (p[4]) {
       const v = $('#ordParam').value.trim(); if (!v) return msg('Falta el dato que pide la acción.');
@@ -1723,7 +1766,7 @@ function pintarOrd() {
   };
   $('#ordExport').onclick = () => {
     let t = 'ÓRDENES DE RADEX\n\n';
-    CATALOGO.forEach((c) => { t += c.cat.toUpperCase() + '\n  Ejemplos: ' + c.ej.join(' | ') + '\n'; ATAJOS.items.filter((x) => !x.r && TOOL_CAT[x.t] === c.cat).forEach((x) => { t += '  Atajo: «' + x.f + '» -> ' + descAtajo(x) + '\n'; }); t += '\n'; });
+    CATALOGO.forEach((c) => { t += c.cat.toUpperCase() + '\n  Ejemplos: ' + c.ej.join(' | ') + '\n'; ATAJOS.items.filter((x) => !x.r && TOOL_CAT[x.t] === c.cat).forEach((x) => { t += '  Atajo: «' + fraseAtajo(x) + '» -> ' + descAtajo(x) + '\n'; }); t += '\n'; });
     const u = URL.createObjectURL(new Blob([t], { type: 'text/plain;charset=utf-8' })), a = document.createElement('a');
     a.href = u; a.download = 'ordenes-radex.txt'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 3000);
   };
