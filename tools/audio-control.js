@@ -107,7 +107,7 @@ module.exports = function registerAudioControl(registry, bridge) {
   registry.register({
     name: 'audio_cambiar_dispositivo',
     risk: 'safe', // se cambia directo (sin pedir confirmación) y se comprueba; si algo sale mal, se vuelve a cambiar al instante
-    description: 'Cambia el dispositivo de SALIDA de audio predeterminado del PC. Hay tres destinos habituales: los parlantes/altavoces de la laptop (dispositivo: laptop), los auriculares o audífonos con cable (dispositivo: auriculares) y los audífonos inalámbricos o Corsair (dispositivo: inalambricos). Úsala cuando pidan "pasa el sonido a los parlantes", "usa los auriculares", "ponlo en los inalámbricos", "pásalo a los Corsair". También acepta parte del nombre de otro dispositivo (hdmi…). Se hace directo, sin pedir confirmación, y la herramienta ya devuelve la frase final (“Se ha cambiado a …”). Si el nombre es ambiguo o ya es el predeterminado, no hace nada y lo dice.',
+    description: 'Cambia el dispositivo de SALIDA de audio predeterminado del PC. Hay tres destinos habituales: los parlantes/altavoces de la laptop (dispositivo: laptop), los auriculares o audífonos con cable (dispositivo: auriculares) y los audífonos inalámbricos o Corsair (dispositivo: inalambricos). Úsala cuando pidan "pasa el sonido a los parlantes", "usa los auriculares", "ponlo en los inalámbricos", "pásalo a los Corsair". También acepta parte del nombre de otro dispositivo (hdmi…). Se hace directo, sin pedir confirmación, y la herramienta ya devuelve la frase final (“Se ha cambiado a …”). Si el nombre es ambiguo o ya es el predeterminado, no hace nada y lo dice. NO la uses si dicen “cámbiate a…”, “escúchame con…” o hablan del micrófono: eso es audio_cambiar_microfono.',
     schema: {
       properties: { dispositivo: { type: 'string', maxLength: 80, description: 'laptop (parlantes de la laptop), auriculares (con cable), inalambricos (o corsair), o parte del nombre de otro dispositivo como hdmi' } },
       required: ['dispositivo'],
@@ -133,7 +133,7 @@ module.exports = function registerAudioControl(registry, bridge) {
       if (match.length > 1) return { clarify: { motivo: `«${a.dispositivo}» coincide con varios dispositivos.`, opciones: match.map((x) => x.nombre) } };
       const dest = match[0];
       const actual = devs.find((x) => x.predeterminado);
-      if (dest.predeterminado) return { fail: `Ya estás usando ${etiquetaSalida(dest)}.` };
+      if (dest.predeterminado) return { fail: `La salida de sonido ya está en ${etiquetaSalida(dest)}. Si querías cambiar el micrófono, dime «cámbiate al micrófono de los audífonos».` };
       if (!ID_RE.test(String(dest.id))) return { fail: 'Windows dio un identificador de dispositivo que no reconozco; no cambio nada.' };
       return { resolved: { id: dest.id, nombre: etiquetaSalida(dest), anterior: actual ? etiquetaSalida(actual) : '', anteriorId: actual ? actual.id : '' }, resumen: `Cambiar la salida de audio${actual ? ' de ' + etiquetaSalida(actual) : ''} a ${etiquetaSalida(dest)}` };
     },
@@ -188,7 +188,7 @@ module.exports = function registerAudioControl(registry, bridge) {
       if (match.length > 1) return { clarify: { motivo: `«${a.dispositivo}» coincide con varios micrófonos.`, opciones: match.map((x) => x.nombre) } };
       const dest = match[0];
       const actual = todos.find((x) => x.predeterminado);
-      if (dest.predeterminado) return { fail: `Ya estás usando ${etiquetaMic(dest, mapa)}.` };
+      if (dest.predeterminado) return { fail: `En Windows el micrófono en uso ya es: ${etiquetaMic(dest, mapa)}.` };
       if (!ID_RE.test(String(dest.id))) return { fail: 'Windows dio un identificador de dispositivo que no reconozco; no cambio nada.' };
       return { resolved: { id: dest.id, nombre: etiquetaMic(dest, mapa), anterior: actual ? etiquetaMic(actual, mapa) : '', anteriorId: actual ? actual.id : '' }, resumen: `Cambiar el micrófono${actual ? ' de ' + etiquetaMic(actual, mapa) : ''} a ${etiquetaMic(dest, mapa)}` };
     },
