@@ -430,6 +430,37 @@ async function audioControlTests() {
   r = await reg.invoke('audio_microfono_volumen', { accion: 'bajar', segundos: 5 });
   check('segundos solo vale con silenciar (con bajar se ignora)', r.ok && !ctlT.hayTemporales());
 
+  // Silenciar un dispositivo concreto (entrada o salida), todos, y consultar qué está silenciado
+  for (const m of st.mics) { m.predeterminado = false; m.silenciado = false; }
+  st.mics[0].predeterminado = true;
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', dispositivo: 'externo' });
+  const ext = st.mics[2];
+  check('micrófono concreto: «externo» se silencia sin ser el que está en uso', r.ok && r.verified && ext && ext.silenciado === true && st.mics[0].silenciado === false, r.text);
+  r = await reg.invoke('audio_silenciados', { cual: 'entrada' });
+  check('audio_silenciados: lista el micrófono silenciado y no los demás', r.ok && /silenciados/.test(r.mensaje) && /externo/.test(r.mensaje), r.text);
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'activar_sonido', dispositivo: 'externo' });
+  check('micrófono concreto: se vuelve a activar', r.ok && r.verified && ext.silenciado === false, r.text);
+  r = await reg.invoke('audio_silenciados', { cual: 'entrada' });
+  check('audio_silenciados: si nada está silenciado lo dice', r.ok && /ninguno/.test(r.mensaje), r.text);
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', dispositivo: 'todos' });
+  check('micrófono «todos»: silencia todos los micrófonos y lo verifica', r.ok && r.verified && st.mics.filter((m) => !/mezcla|stereo/i.test(m.nombre)).every((m) => m.silenciado === true), r.text);
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'activar_sonido', dispositivo: 'todos' });
+  check('micrófono «todos»: los activa de nuevo', r.ok && r.verified && st.mics.filter((m) => !/mezcla|stereo/i.test(m.nombre)).every((m) => m.silenciado === false), r.text);
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', dispositivo: 'micrófono que no existe' });
+  check('micrófono concreto inexistente → no cambia nada y lista los activos', !r.ok && /No encuentro/.test(r.text) && st.mics.every((m) => m.silenciado === false), r.text);
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', dispositivo: 'externo', segundos: 1 });
+  const estT = await ctlT.estado();
+  check('estado en pantalla: el silencio temporal trae el momento en que termina', estT.items.some((x) => x.dir === 'entrada' && x.hasta > Date.now() - 100), JSON.stringify(estT));
+  await ctlT.liberar();
+  const estV = await ctlT.estado();
+  check('estado en pantalla: sin silencios la lista queda vacía', estV.items.length === 0, JSON.stringify(estV));
+  r = await reg.invoke('audio_salida_volumen', { accion: 'silenciar', dispositivo: 'laptop' });
+  check('salida concreta: silenciar los parlantes de la laptop y verificar', r.ok && r.verified && /Salida silenciada/.test(r.mensaje), r.text);
+  r = await reg.invoke('audio_silenciados', { cual: 'salida' });
+  check('audio_silenciados: también lista salidas silenciadas', r.ok && /Salidas? silenciad/.test(r.mensaje), r.text);
+  r = await reg.invoke('audio_salida_volumen', { accion: 'activar_sonido', dispositivo: 'laptop' });
+  check('salida concreta: se vuelve a activar', r.ok && r.verified && /activada otra vez/.test(r.mensaje), r.text);
+
   const srcCtl = fs.readFileSync(path.join(__dirname, 'native', 'audio-control.ps1'), 'utf8');
   const srcLect = fs.readFileSync(path.join(__dirname, 'native', 'audio.ps1'), 'utf8');
   check('ningún módulo declara clases COM con "new" (chocarían entre sí al cargarse los dos)', !/new\s+(MMDeviceEnumeratorCom|PolicyConfigClient)\s*\(/.test(srcLect + srcCtl) && !/class\s+(MMDeviceEnumeratorCom|PolicyConfigClient)/.test(srcLect + srcCtl));

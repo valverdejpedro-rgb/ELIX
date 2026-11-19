@@ -367,6 +367,7 @@ ipcMain.handle('tools:run', async (e, name, args) => {
   programarRespaldo(); // si fue memoria_guardar / memoria_olvidar, la copia se actualiza sola
   return elixTools.run(String(name), args && typeof args === 'object' && !Array.isArray(args) ? args : {});
 });
+ipcMain.handle('audio:estado', async (e) => (trusted(e) ? elixTools.estadoAudio() : { items: [] }));
 ipcMain.handle('tools:confirm', async (e, accept) => {
   if (!trusted(e)) return { ok: false, verified: false, mensaje: 'No permitido.', text: 'FALLÓ: No permitido.' };
   programarRespaldo();
@@ -491,7 +492,7 @@ const lock = app.requestSingleInstanceLock();
 if (!lock) app.quit();
 else {
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
-  app.whenReady().then(() => { restaurarSiFalta(); respaldarAhora(); elixTools.setAvisar((t) => { try { win && win.webContents.send('elix:aviso', String(t).slice(0, 300)); } catch {} }); elixTools.init({ logFile: path.join(app.getPath('userData'), 'tools-log.jsonl') }); createWindow(); setupUpdater(); });
+  app.whenReady().then(() => { restaurarSiFalta(); respaldarAhora(); elixTools.setAvisar((t) => { try { win && win.webContents.send('elix:aviso', String(t).slice(0, 300)); } catch {} }); elixTools.setEstadoAudio((e) => { try { win && win.webContents.send('audio:estado', e); } catch {} }); elixTools.init({ logFile: path.join(app.getPath('userData'), 'tools-log.jsonl') }); createWindow(); setupUpdater(); });
   app.on('window-all-closed', () => app.quit());
   let cerrando = false;
   app.on('before-quit', (e) => {
