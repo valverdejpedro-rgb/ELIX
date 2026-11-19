@@ -117,3 +117,11 @@ manteniendo el mismo nombre. También se puede decir "pon el avatar de mujer" po
 - Nuevo comando de PowerShell `audio.nivel_dispositivo` (volumen/silencio de un dispositivo). Al correr `node selftest.js` en Windows se comprueba que compila.
 - No incluido a propósito: elegir un dispositivo distinto para una sola app (Spotify a unos audífonos y Chrome a otros). Windows lo hace con una interfaz no documentada que cambia entre versiones y no se puede probar sin romper algo; se hace desde Configuración > Sistema > Sonido > Mezclador de volumen.
 
+## Silencio temporal del micrófono (v1.0.39)
+- «Silencia el micrófono por 5 segundos» / «por 2 minutos» / «por una hora»: de 1 segundo a 12 horas. Al terminar, el micrófono se reactiva solo y Radex lo dice («Micrófono activado otra vez»).
+  Sin decir tiempo, el silencio sigue siendo permanente, como antes.
+- El temporizador vive en el programa principal, no en la ventana: funciona aunque Radex no pueda oírte mientras el micrófono está silenciado.
+- Si activas el micrófono antes («activa el micrófono») o lo silencias sin tiempo, el temporizador se cancela.
+- Red de seguridad: si cierras Radex en pleno silencio temporal, se reactiva antes de cerrar (máx. 3 s). Si Radex se cierra de golpe o se va la luz, la nota `silencio-temporal.json` (carpeta de datos) hace que al abrirlo se reactive el micrófono, o se retome el tiempo que faltaba.
+- Si no consigue reactivarlo, te avisa y te dice cómo hacerlo a mano (escribir «activa el micrófono» en la caja de texto).
+

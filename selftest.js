@@ -214,7 +214,7 @@ async function audioControlTests() {
     },
   };
   const reg = createRegistry({ ttlMs: 400 });
-  require('./tools/audio-control')(reg, bridge);
+  const ctlT = require('./tools/audio-control')(reg, bridge);
   require('./tools/audio')(reg, bridge);
   const cambios = () => calls.filter((c) => c.cmd === 'audio.app' || c.cmd === 'audio.dispositivo').length;
 
@@ -380,6 +380,55 @@ async function audioControlTests() {
   check('volver al anterior (salida): regresa al dispositivo de antes', r.ok && r.verified && /Se ha vuelto a /.test(r.text), r.text);
   r = await reg.invoke('audio_volver_anterior', { cual: 'altavoz' });
   check('volver al anterior: valor no permitido → rechazado', !r.ok);
+
+  // Silencio temporal del micrófono (el temporizador vive en el programa principal)
+  const fsT = require('fs');
+  const esperar = (ms) => new Promise((res) => setTimeout(res, ms));
+  const avisos = []; ctlT.setAvisar((t) => avisos.push(t));
+  for (const m of st.mics) m.predeterminado = false;
+  st.mics[0].predeterminado = true; st.mics[0].silenciado = false; st.mics[0].volumen = 60;
+  const fTemp = require('path').join(anm.dirDatos(), 'silencio-temporal.json');
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', segundos: 1 });
+  check('silencio temporal: silencia, dice la duración y arma el temporizador', r.ok && r.verified && st.mics[0].silenciado === true && /por 1 segundo/.test(r.mensaje) && /Se reactivará solo/.test(r.mensaje) && ctlT.hayTemporales(), r.text);
+  check('silencio temporal: queda anotado en disco (por si Radex se cierra)', fsT.existsSync(fTemp));
+  await esperar(1600);
+  check('silencio temporal: pasado el tiempo se reactiva solo, avisa y borra la nota', st.mics[0].silenciado === false && !ctlT.hayTemporales() && avisos.length === 1 && /activado otra vez/.test(avisos[0]) && !fsT.existsSync(fTemp), JSON.stringify(avisos));
+  avisos.length = 0;
+  await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', segundos: 1 });
+  await reg.invoke('audio_microfono_volumen', { accion: 'activar_sonido' });
+  await esperar(1500);
+  check('silencio temporal: si lo activas antes, el temporizador se cancela (no avisa de nuevo)', st.mics[0].silenciado === false && avisos.length === 0 && !ctlT.hayTemporales(), JSON.stringify(avisos));
+  await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', segundos: 1 });
+  await reg.invoke('audio_microfono_volumen', { accion: 'silenciar' });
+  await esperar(1500);
+  check('silencio temporal: si luego lo silencias sin tiempo, sigue silenciado (se anula el temporizador)', st.mics[0].silenciado === true && avisos.length === 0 && !ctlT.hayTemporales(), JSON.stringify(avisos));
+  await reg.invoke('audio_microfono_volumen', { accion: 'activar_sonido' });
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', segundos: 150 });
+  check('duración 150 s → «2 minutos y 30 segundos»', /por 2 minutos y 30 segundos/.test(r.mensaje), r.mensaje);
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', segundos: 3600 });
+  check('duración 3600 s → «1 hora»', /por 1 hora \(/.test(r.mensaje), r.mensaje);
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', segundos: 7500 });
+  check('duración 7500 s → «2 horas y 5 minutos»', /por 2 horas y 5 minutos/.test(r.mensaje), r.mensaje);
+  await ctlT.liberar();
+  check('al cerrar Radex: se reactiva el micrófono y se borra la nota', st.mics[0].silenciado === false && !ctlT.hayTemporales() && !fsT.existsSync(fTemp));
+  fsT.writeFileSync(fTemp, JSON.stringify({ v: 1, items: [{ id: st.mics[0].id, hasta: Date.now() - 5000, nombre: 'x' }] }));
+  st.mics[0].silenciado = true; avisos.length = 0;
+  await ctlT.recuperar();
+  check('al abrir Radex: un silencio vencido que quedó pendiente se reactiva y avisa', st.mics[0].silenciado === false && avisos.length === 1, JSON.stringify(avisos));
+  fsT.writeFileSync(fTemp, JSON.stringify({ v: 1, items: [{ id: st.mics[0].id, hasta: Date.now() + 60000, nombre: 'x' }] }));
+  st.mics[0].silenciado = true;
+  await ctlT.recuperar();
+  check('al abrir Radex: si faltaba tiempo, se retoma el silencio con su temporizador', st.mics[0].silenciado === true && ctlT.hayTemporales());
+  await ctlT.liberar();
+  fsT.writeFileSync(fTemp, JSON.stringify({ v: 1, items: [{ id: 'x; calc.exe', hasta: 1, nombre: 'x' }] }));
+  const antesN = st.mics[0].silenciado; await ctlT.recuperar();
+  check('al abrir Radex: un identificador raro en la nota se ignora', st.mics[0].silenciado === antesN && !ctlT.hayTemporales());
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', segundos: 0 });
+  check('segundos = 0 → rechazado', !r.ok);
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', segundos: 999999 });
+  check('más de 12 horas → rechazado', !r.ok && !ctlT.hayTemporales());
+  r = await reg.invoke('audio_microfono_volumen', { accion: 'bajar', segundos: 5 });
+  check('segundos solo vale con silenciar (con bajar se ignora)', r.ok && !ctlT.hayTemporales());
 
   const srcCtl = fs.readFileSync(path.join(__dirname, 'native', 'audio-control.ps1'), 'utf8');
   const srcLect = fs.readFileSync(path.join(__dirname, 'native', 'audio.ps1'), 'utf8');
