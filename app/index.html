@@ -131,6 +131,10 @@
   #ord .m{color:var(--mute);font-size:14px;margin:2px 0 6px}
   #ord .it{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
   #ord .it small{color:var(--mute)}
+  #ord .catb{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;margin-top:6px;padding:8px 10px;background:var(--panel);color:var(--ice);border:1px solid var(--line);border-radius:8px;font:inherit;font-size:16px;text-align:left;cursor:pointer}
+  #ord .catb:hover,#ord .catb.on{border-color:var(--cy);color:var(--cy)}
+  #ord .catb small{color:var(--mute);font-size:13px}
+  #ord .catc{padding:2px 6px 8px 12px;border-left:2px solid var(--line);margin-left:6px}
   #ord .bd{font-size:12px;padding:1px 8px;border-radius:10px;border:1px solid var(--line);font-weight:600}
   #ord .bd.ok{color:#8dffb0;border-color:#8dffb0}#ord .bd.no{color:var(--amber);border-color:var(--amber)}
   #ord .fila{display:flex;flex-direction:column;gap:4px;margin:10px 0}
@@ -1621,12 +1625,11 @@ function pareceOrden(text) {
 }
 // Historial de lo que oyó y qué hizo con ello (se guarda en el PC: frases.json)
 const FRASES = { items: [], ok: !!window.elixFrases, timer: 0 };
-if (window.elixFrases) window.elixFrases.load().then((l) => { FRASES.items = Array.isArray(l) ? l : []; }).catch(() => {});
+if (window.elixFrases) { try { window.elixFrases.save([]); } catch {} } // el historial de lo oído no se conserva: se limpia en cada arranque (los atajos y la memoria no se tocan)
 function logFrase(text, r, h) {
   text = String(text || '').trim().slice(0, 200); if (!text) return;
   FRASES.items.unshift({ x: text, r, t: Date.now(), ...(h ? { h: String(h).slice(0, 80) } : {}) });
-  if (FRASES.items.length > 300) FRASES.items.length = 300;
-  if (FRASES.ok) { clearTimeout(FRASES.timer); FRASES.timer = setTimeout(() => { try { window.elixFrases.save(FRASES.items); } catch {} }, 1500); }
+  if (FRASES.items.length > 100) FRASES.items.length = 100; // solo en memoria durante la sesión, no se escribe a disco
   if ($('#ord').open) pintarOrd();
 }
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -1695,7 +1698,7 @@ function descAtajo(x) {
   return p[1].replace(/ \(escribe[^)]*\)/, '') + (dato ? ': ' + (x.a[dato[0]] === '$' ? 'el número que digas (0 a 100)' : x.a[dato[0]]) : '') + (Object.entries(p[3]).some(([, v]) => v === '@') ? ' (' + x.a.dispositivo + ')' : '');
 }
 const RES_TXT = { atajo: ['Atajo ✓', 'ok'], cerebro: ['Entendida', 'ok'], silencio: ['El cerebro la ignoró', 'no'], 'no-orden': ['No parecía orden', 'no'], ruido: ['Ruido', 'no'], ignorada: ['Ignorada', 'no'] };
-let ordTab = 'conocidas', ordFiltro = 'todas', memCache = null;
+let ordTab = 'conocidas', ordFiltro = 'todas', memCache = null, ordCat = '';
 function pintarOrd() {
   document.querySelectorAll('#ord .tab').forEach((b) => b.classList.toggle('on', b.dataset.t === ordTab));
   document.querySelectorAll('#ord .pane').forEach((p) => { p.hidden = p.dataset.t !== ordTab; });
@@ -1703,19 +1706,25 @@ function pintarOrd() {
     const us = ATAJOS.items.filter((x) => !x.r), bloq = ATAJOS.items.filter((x) => x.r);
     let h = ATAJOS.on ? '' : '<p class="m">Los atajos solo funcionan en la app de escritorio.</p>';
     if (STRICT.on) h += '<p class="m"><b>Modo «solo mis órdenes» activo:</b> solo funcionan las que aparecen abajo como «→». Los ejemplos en gris son de lo que entiende el cerebro y en este modo no se usan.</p>';
-    CATALOGO.forEach((c) => {
+    const fila = (x, uso) => '<div class="it"><span>«' + esc(fraseAtajo(x)) + '» → ' + esc(descAtajo(x)) + (uso ? ' <small>(' + (x.n | 0) + ' usos)</small>' : '') + '</span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Quitar</button></div>';
+    const entradas = CATALOGO.map((c) => {
       const mios = us.filter((x) => TOOL_CAT[x.t] === c.cat);
-      h += '<h3>' + esc(c.cat) + '</h3><p class="m">Ejemplos que entiende (con otras palabras también): ' + c.ej.map((e) => '«' + esc(e) + '»').join(' · ') + '</p>';
-      mios.forEach((x) => { h += '<div class="it"><span>«' + esc(fraseAtajo(x)) + '» → ' + esc(descAtajo(x)) + ' <small>(' + (x.n | 0) + ' usos)</small></span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Quitar</button></div>'; });
+      return { k: c.cat, n: mios.length, b: '<p class="m">Ejemplos que entiende (con otras palabras también): ' + c.ej.map((e) => '«' + esc(e) + '»').join(' · ') + '</p>' + mios.map((x) => fila(x, true)).join('') };
     });
     const otros = us.filter((x) => !TOOL_CAT[x.t]);
-    if (otros.length) { h += '<h3>Otros atajos</h3>'; otros.forEach((x) => { h += '<div class="it"><span>«' + esc(fraseAtajo(x)) + '» → ' + esc(descAtajo(x)) + '</span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Quitar</button></div>'; }); }
-    if (bloq.length) { h += '<h3>Dijiste «no guardar»</h3>'; bloq.forEach((x) => { h += '<div class="it"><span>«' + esc(fraseAtajo(x)) + '»</span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Permitir de nuevo</button></div>'; }); }
+    if (otros.length) entradas.push({ k: 'Otros atajos', n: otros.length, b: otros.map((x) => fila(x, false)).join('') });
+    if (bloq.length) entradas.push({ k: 'Dijiste «no guardar»', n: bloq.length, b: bloq.map((x) => '<div class="it"><span>«' + esc(fraseAtajo(x)) + '»</span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Permitir de nuevo</button></div>').join('') });
+    h += '<p class="m">Toca una categoría para ver sus órdenes.</p>';
+    entradas.forEach((e) => {
+      const ab = ordCat === e.k;
+      h += '<button type="button" class="catb' + (ab ? ' on' : '') + '" data-c="' + esc(e.k) + '"><span>' + (ab ? '▾ ' : '▸ ') + esc(e.k) + '</span><small>' + (e.n ? e.n + (e.n === 1 ? ' orden tuya' : ' órdenes tuyas') : 'solo ejemplos') + '</small></button>' + (ab ? '<div class="catc">' + e.b + '</div>' : '');
+    });
     $('#ordP1').innerHTML = h;
+    $('#ordP1').querySelectorAll('[data-c]').forEach((b) => { b.onclick = () => { ordCat = ordCat === b.dataset.c ? '' : b.dataset.c; pintarOrd(); }; });
     $('#ordP1').querySelectorAll('[data-q]').forEach((b) => { b.onclick = () => { ATAJOS.items.splice(+b.dataset.q, 1); guardarAtajos(); pintarOrd(); }; });
   } else if (ordTab === 'oido') {
     const sel = FRASES.items.filter((f) => ordFiltro === 'todas' || (ordFiltro === 'ok' ? (f.r === 'atajo' || f.r === 'cerebro') : !(f.r === 'atajo' || f.r === 'cerebro')));
-    let h = '<div class="it"><span class="m">Lo último que oyó (sin contar lo que oye estando dormido). Si entendió mal una orden tuya, pulsa «Hacer atajo» y dile qué significa.</span><select id="ordFil"><option value="todas">Todas</option><option value="ok">Entendidas</option><option value="no">No entendidas / ignoradas</option></select></div>';
+    let h = '<div class="it"><span class="m">Lo que oyó en esta sesión (se borra al cerrar el programa; sin contar lo que oye estando dormido). Si entendió mal una orden tuya, pulsa «Hacer atajo» y dile qué significa.</span><select id="ordFil"><option value="todas">Todas</option><option value="ok">Entendidas</option><option value="no">No entendidas / ignoradas</option></select></div>';
     if (!sel.length) h += '<p class="m">Todavía no hay frases.</p>';
     sel.slice(0, 120).forEach((f, i) => {
       const r = RES_TXT[f.r] || [f.r, 'no'], hora = new Date(f.t).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
