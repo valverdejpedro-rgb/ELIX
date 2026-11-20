@@ -960,8 +960,11 @@ const notes = () => { try { return JSON.parse(store.get('jarvis:notas', '[]')); 
 
 const str = (d) => ({ type: 'string', description: d });
 const TOOLS_WEB = [
-  { name: 'hora_y_fecha', description: 'Devuelve la fecha y hora actuales del usuario.', inputSchema: { type: 'object', properties: {} },
-    execute: () => new Date().toLocaleString('es', { dateStyle: 'full', timeStyle: 'medium' }) },
+  { name: 'hora_y_fecha', description: 'Devuelve la fecha y hora actuales del usuario. que: hora (solo la hora), fecha (solo la fecha) o ambas (por defecto).',
+    inputSchema: { type: 'object', properties: { que: { type: 'string', enum: ['hora', 'fecha', 'ambas'], description: 'hora = solo la hora; fecha = solo la fecha; ambas = las dos (por defecto)' } } },
+    execute: ({ que } = {}) => que === 'hora' ? 'Son las ' + new Date().toLocaleTimeString('es', { hour: 'numeric', minute: '2-digit' })
+      : que === 'fecha' ? 'Hoy es ' + new Date().toLocaleDateString('es', { dateStyle: 'full' })
+      : new Date().toLocaleString('es', { dateStyle: 'full', timeStyle: 'medium' }) },
   { name: 'abrir_web', description: 'Abre una página web (URL completa http/https).',
     inputSchema: { type: 'object', properties: { url: str('URL completa') }, required: ['url'] },
     execute: ({ url }) => openLink(url, url) },
@@ -1428,6 +1431,8 @@ function textoDirecto(calls, saltados) {
 }
 const estable = (o) => JSON.stringify(o || {}, Object.keys(o || {}).sort());
 const LEARNABLE = new Set(['energia_cambiar_plan', 'energia_planes', 'audio_volumen_app', 'audio_cambiar_dispositivo', 'audio_cambiar_microfono', 'audio_microfono_volumen', 'audio_salida_volumen', 'audio_silenciados', 'audio_reactivar_todo', 'audio_volver_anterior', 'audio_en_uso', 'ajustar_volumen', 'control_multimedia', 'abrir_aplicacion', 'abrir_carpeta', 'controlar_ventana']);
+const MANUALES = new Set(['audio_estado', 'audio_asignar_microfono', 'navegador_abrir', 'navegador_youtube', 'navegador_elegir', 'navegador_video', 'navegador_clic', 'navegador_escribir', 'navegador_tecla', 'navegador_leer', 'navegador_cerrar', 'buscar', 'abrir_web', 'hora_y_fecha', 'info_del_sistema', 'bloquear_pc', 'estado_del_dispositivo', 'memoria_consultar', 'temporizador', 'cambiar_color_orbe', 'cambiar_avatar', 'copiar_al_portapapeles']); // solo se ejecutan si TÚ los asignas en «Añadir»; el programa no te ofrece aprenderlos solo
+const MULTILINEA = new Set(['info_del_sistema', 'audio_estado', 'memoria_consultar', 'estado_del_dispositivo', 'navegador_leer']); // estas dicen varias líneas, no solo la primera
 const FILL_ATAJO = new Set(['radex', 'oye', 'hey', 'ok', 'por', 'favor', 'porfa', 'puedes', 'podrias', 'quiero', 'que', 'me', 'lo', 'la', 'el', 'un', 'una', 'ahora', 'ya', 'pues', 'eh', 'gracias', 'si']);
 const SECRETO_ATAJO = /(contrase|password|token|clave|gsk_|AIza|\d{9,})/i;
 const FALLO_NATIVO = /^(No pude|No encontr|No permitido|Esta acción|Acción de PC|Error|Herramienta desconocida|Falta|Necesito)/i;
@@ -1461,6 +1466,7 @@ const esVariable = (x) => !!x && typeof x.f === 'string' && x.f.includes('#') &&
 const claveVar = (x) => Object.keys(x.a).find((q) => x.a[q] === '$');
 const VAR_RELLENO = new Set(['sube', 'subir', 'baja', 'bajar', 'pon', 'poner', 'ponlo', 'deja', 'dejalo', 'dejar', 'establece', 'ajusta', 'cambia', 'coloca', 'lleva', 'a', 'en', 'al', 'hasta', 'de', 'del', 'los', 'las']);
 const sinVerbos = (t) => String(t).split(' ').filter((w) => !VAR_RELLENO.has(w)).join(' '); // «sube / baja / pon … a / en» dan igual: lo que cuenta es la cosa y el número
+const sinNum = (x) => { const a = { ...x.a }; delete a[Object.keys(a).find((q) => a[q] === '$')]; return estable(a); }; // los argumentos fijos de una orden con número variable
 const fraseAtajo = (x) => String(x.f).replace('#', '[número]');
 function buscarAtajo(text) {
   const k = claveAtajo(text); if (!k) return null;
@@ -1587,7 +1593,7 @@ function gestionarAtajos(text) { // «¿qué atajos tienes?» / «olvida el ataj
 async function ejecutarAtajo(hit) { // devuelve lo que hay que decir, o null para que lo resuelva el cerebro
   if (hit.t === 'ctl_dormir' || hit.t === 'ctl_despertar') return controlAtajo(hit);
   const t = [...ALL_TOOLS, ...REG_TOOLS].find((x) => x.name === hit.t);
-  if (!t || !LEARNABLE.has(hit.t)) return null;
+  if (!t || !(LEARNABLE.has(hit.t) || MANUALES.has(hit.t))) return null;
   const args = JSON.parse(JSON.stringify(hit.a || {}));
   if (esVariable(hit)) { if (hit._num == null) return null; args[claveVar(hit)] = hit._num; delete hit._num; }
   setState('acting', 'Ejecutando');
@@ -1596,7 +1602,7 @@ async function ejecutarAtajo(hit) { // devuelve lo que hay que decir, o null par
   addEl('chip', 'atajo ' + hit.t + ' ' + JSON.stringify(args) + ': ' + out.slice(0, 300));
   const r = resultadoAccion(hit.t, out);
   if (r === 'pend') { const rs = pendingConfirm && pendingConfirm.resumen; if (pendingConfirm) pendingConfirm.ask = false; hit.n = (hit.n | 0) + 1; guardarAtajos(); return preguntaConfirmacion(rs); }
-  if (r === 'ok') { hit.n = (hit.n | 0) + 1; hit.x = 0; guardarAtajos(); return out.replace(/^VERIFICADO:\s*/, '').split('\n')[0].trim().slice(0, 300) || 'Listo.'; }
+  if (r === 'ok') { hit.n = (hit.n | 0) + 1; hit.x = 0; guardarAtajos(); const lin = out.replace(/^VERIFICADO:\s*/, '').split('\n').map((l) => l.trim()).filter(Boolean); return (MULTILINEA.has(hit.t) ? lin.slice(0, 8).join('. ').slice(0, 700) : (lin[0] || '').slice(0, 300)) || 'Listo.'; }
   hit.x = (hit.x | 0) + 1; // falló: el cerebro lo resuelve; si falla 2 veces seguidas, se olvida el atajo
   if (hit.x >= 2) { ATAJOS.items = ATAJOS.items.filter((i) => i !== hit); guardarAtajos(); }
   return null;
@@ -1638,14 +1644,15 @@ const CATALOGO = [
   { cat: 'Volumen del PC', tools: ['ajustar_volumen'], ej: ['Sube el volumen', 'Baja el volumen', 'Pon el volumen en 37', 'Déjalo al 80 por ciento', 'Silencia', 'Quita el silencio', '¿Qué volumen tengo?'] },
   { cat: 'Volumen por aplicación', tools: ['audio_volumen_app'], ej: ['Baja el volumen de Spotify', 'Pon Discord al 30', 'Silencia Chrome'] },
   { cat: 'Micrófono', tools: ['audio_cambiar_microfono', 'audio_microfono_volumen', 'audio_asignar_microfono'], ej: ['Cámbiate al micrófono de la laptop', 'Escúchame con el micrófono externo', 'Silencia el micrófono', 'Silencia el micrófono por 30 segundos', 'Sube el micrófono', 'El Realtek es el de la laptop'] },
-  { cat: 'Estado y deshacer', tools: ['audio_en_uso', 'audio_silenciados', 'audio_reactivar_todo', 'audio_volver_anterior'], ej: ['¿Qué audio estoy usando?', '¿Qué está silenciado?', 'Reactiva todo', 'Regrésame al micrófono de antes'] },
+  { cat: 'Estado y deshacer', tools: ['audio_en_uso', 'audio_silenciados', 'audio_reactivar_todo', 'audio_volver_anterior', 'audio_estado'], ej: ['¿Qué audio estoy usando?', '¿Qué micrófonos tengo?', '¿Qué está silenciado?', 'Reactiva todo', 'Regrésame al micrófono de antes'] },
   { cat: 'Energía', tools: ['energia_cambiar_plan', 'energia_planes'], ej: ['Cambia el plan de energía a alto rendimiento', 'Pon el modo gamer', '¿En qué plan de energía estoy?'] },
-  { cat: 'Multimedia y navegador', tools: ['control_multimedia'], ej: ['Pausa', 'Siguiente canción', 'Pon música en YouTube', 'Busca recetas en Google'] },
+  { cat: 'Multimedia y navegador', tools: ['control_multimedia', 'navegador_abrir', 'navegador_youtube', 'navegador_elegir', 'navegador_video', 'navegador_clic', 'navegador_escribir', 'navegador_tecla', 'navegador_leer', 'navegador_cerrar', 'buscar', 'abrir_web'], ej: ['Pausa', 'Siguiente canción', 'Pon música en YouTube', 'Busca recetas en Google'] },
   { cat: 'Aplicaciones y ventanas', tools: ['abrir_aplicacion', 'abrir_carpeta', 'controlar_ventana'], ej: ['Abre la calculadora', 'Abre la carpeta de descargas', 'Minimiza Chrome'] },
-  { cat: 'Sistema', tools: [], ej: ['Dame las especificaciones del PC', '¿Cuánta RAM tengo?', 'Bloquea el PC', '¿Qué hora es?'] },
-  { cat: 'Memoria y atajos', tools: [], ej: ['Recuerda que …', '¿Qué recuerdas?', 'Olvida …', '¿Qué atajos tienes?', 'Olvida el atajo …'] },
+  { cat: 'Sistema', tools: ['hora_y_fecha', 'info_del_sistema', 'bloquear_pc', 'estado_del_dispositivo'], ej: ['Dame las especificaciones del PC', '¿Cuánta RAM tengo?', 'Bloquea el PC', '¿Qué hora es?'] },
+  { cat: 'Memoria y atajos', tools: ['memoria_consultar'], nota: 'Consultar la memoria sí se puede asignar. «Recuerda que…», «Olvida…» y los atajos con «¿qué atajos tienes?» llevan un texto distinto cada vez, así que los entiende el cerebro y no se pueden fijar como atajo.', ej: ['Recuerda que …', '¿Qué recuerdas?', 'Olvida …', '¿Qué atajos tienes?', 'Olvida el atajo …'] },
+  { cat: 'Utilidades', tools: ['temporizador', 'cambiar_color_orbe', 'cambiar_avatar', 'copiar_al_portapapeles'], ej: ['Pon un temporizador de 5 minutos', 'Cambia el color a verde', 'Cambia el avatar a mujer', 'Copia esto al portapapeles'] },
   { cat: 'Control de Radex', tools: ['ctl_dormir', 'ctl_despertar'], ej: ['(las inventas tú: por ejemplo «desactívate» para dormirlo y «despierta» para despertarlo)'] },
-  { cat: 'Modo conversación', tools: [], ej: ['Radex, desactívate'] },
+  { cat: 'Modo conversación', tools: [], nota: 'Es lo mismo que «Control de Radex»: dormirlo y despertarlo. Las frases fijas «desactívate», «duérmete»… ya funcionan solas; si quieres tus propias palabras, asígnalas en «Control de Radex».', ej: ['Radex, desactívate'] },
 ];
 // [categoría, descripción, herramienta, argumentos ('$' = lo que escribas), tipo de dato que pide]
 const PLANTILLAS = [
@@ -1660,12 +1667,20 @@ const PLANTILLAS = [
   ['Micrófono', 'Usar el micrófono de la laptop', 'audio_cambiar_microfono', { dispositivo: 'laptop' }],
   ['Micrófono', 'Usar el micrófono externo (ETHOS 101)', 'audio_cambiar_microfono', { dispositivo: 'externo' }],
   ['Micrófono', 'Usar el micrófono de los audífonos', 'audio_cambiar_microfono', { dispositivo: 'auriculares' }],
+  ['Micrófono', 'Enseñarle cuál micrófono es el de la laptop (escribe parte del nombre que le da Windows)', 'audio_asignar_microfono', { dispositivo: '$', rol: 'laptop' }, 'texto'],
+  ['Micrófono', 'Enseñarle cuál micrófono es el externo (escribe parte del nombre que le da Windows)', 'audio_asignar_microfono', { dispositivo: '$', rol: 'externo' }, 'texto'],
+  ['Micrófono', 'Enseñarle cuál micrófono es el de los audífonos (escribe parte del nombre que le da Windows)', 'audio_asignar_microfono', { dispositivo: '$', rol: 'auriculares' }, 'texto'],
   ['Micrófono', 'Silenciar el micrófono en uso', 'audio_microfono_volumen', { accion: 'silenciar' }],
   ['Micrófono', 'Activar el micrófono en uso', 'audio_microfono_volumen', { accion: 'activar_sonido' }],
   ['Micrófono', 'Subir el micrófono', 'audio_microfono_volumen', { accion: 'subir' }],
   ['Micrófono', 'Bajar el micrófono', 'audio_microfono_volumen', { accion: 'bajar' }],
   ['Micrófono', 'Dejar el micrófono en CUALQUIER porcentaje, 0 a 100 (una sola orden: el número lo dices al hablar)', 'audio_microfono_volumen', { accion: 'establecer', porcentaje: '$' }, 'variable'],
   ['Micrófono', 'Volumen de un micrófono concreto en CUALQUIER porcentaje, 0 a 100 (escribe laptop, externo, auriculares o parte del nombre; el número lo dices al hablar)', 'audio_microfono_volumen', { accion: 'establecer', dispositivo: '@', porcentaje: '$' }, 'variable-texto'],
+  ['Volumen por aplicación', 'Silenciar una aplicación (escribe cuál)', 'audio_volumen_app', { app: '$', accion: 'silenciar' }, 'texto'],
+  ['Volumen por aplicación', 'Quitar el silencio a una aplicación (escribe cuál)', 'audio_volumen_app', { app: '$', accion: 'activar_sonido' }, 'texto'],
+  ['Volumen por aplicación', 'Subir el volumen de una aplicación (escribe cuál)', 'audio_volumen_app', { app: '$', accion: 'subir' }, 'texto'],
+  ['Volumen por aplicación', 'Bajar el volumen de una aplicación (escribe cuál)', 'audio_volumen_app', { app: '$', accion: 'bajar' }, 'texto'],
+  ['Volumen por aplicación', 'Volumen de una aplicación en CUALQUIER porcentaje, 0 a 100 (escribe cuál; el número lo dices al hablar)', 'audio_volumen_app', { app: '@', accion: 'establecer', porcentaje: '$' }, 'variable-texto'],
   ['Volumen del PC', 'Subir el volumen', 'ajustar_volumen', { accion: 'subir' }],
   ['Volumen del PC', 'Bajar el volumen', 'ajustar_volumen', { accion: 'bajar' }],
   ['Volumen del PC', 'Silenciar el PC', 'ajustar_volumen', { accion: 'silenciar' }],
@@ -1675,27 +1690,74 @@ const PLANTILLAS = [
   ['Energía', 'Plan de energía: GAMER', 'energia_cambiar_plan', { plan: 'GAMER' }],
   ['Energía', 'Cambiar a otro plan de energía (escribe el nombre exacto)', 'energia_cambiar_plan', { plan: '$' }, 'texto'],
   ['Energía', 'Decir qué plan de energía está activo', 'energia_planes', {}],
-  ['Multimedia', 'Pausar o reanudar', 'control_multimedia', { accion: 'play_pausa' }],
-  ['Multimedia', 'Siguiente canción', 'control_multimedia', { accion: 'siguiente' }],
-  ['Multimedia', 'Canción anterior', 'control_multimedia', { accion: 'anterior' }],
+  ['Multimedia y navegador', 'Pausar o reanudar', 'control_multimedia', { accion: 'play_pausa' }],
+  ['Multimedia y navegador', 'Siguiente canción', 'control_multimedia', { accion: 'siguiente' }],
+  ['Multimedia y navegador', 'Canción anterior', 'control_multimedia', { accion: 'anterior' }],
+  ['Multimedia y navegador', 'Abrir Chrome a la vista', 'navegador_abrir', { navegador: 'chrome' }],
+  ['Multimedia y navegador', 'Abrir Edge a la vista', 'navegador_abrir', { navegador: 'edge' }],
+  ['Multimedia y navegador', 'Abrir Brave a la vista', 'navegador_abrir', { navegador: 'brave' }],
+  ['Multimedia y navegador', 'Abrir una página en el navegador (escribe la dirección completa, https://…)', 'navegador_abrir', { url: '$' }, 'texto'],
+  ['Multimedia y navegador', 'Buscar y reproducir en YouTube (escribe qué)', 'navegador_youtube', { consulta: '$' }, 'texto'],
+  ['Multimedia y navegador', 'Reproducir otro resultado de YouTube (escribe el número, 1 = el primero)', 'navegador_elegir', { numero: '$' }, 'numero'],
+  ['Multimedia y navegador', 'Video de YouTube: pausar', 'navegador_video', { accion: 'pausar' }],
+  ['Multimedia y navegador', 'Video de YouTube: reanudar', 'navegador_video', { accion: 'reanudar' }],
+  ['Multimedia y navegador', 'Video de YouTube: silenciar', 'navegador_video', { accion: 'silenciar' }],
+  ['Multimedia y navegador', 'Video de YouTube: activar el sonido', 'navegador_video', { accion: 'activar_sonido' }],
+  ['Multimedia y navegador', 'Video de YouTube: subir el volumen', 'navegador_video', { accion: 'subir_volumen' }],
+  ['Multimedia y navegador', 'Video de YouTube: bajar el volumen', 'navegador_video', { accion: 'bajar_volumen' }],
+  ['Multimedia y navegador', 'Video de YouTube: volumen en CUALQUIER porcentaje, 0 a 100 (el número lo dices al hablar)', 'navegador_video', { accion: 'establecer_volumen', valor: '$' }, 'variable'],
+  ['Multimedia y navegador', 'Video de YouTube: adelantar', 'navegador_video', { accion: 'adelantar' }],
+  ['Multimedia y navegador', 'Video de YouTube: retroceder', 'navegador_video', { accion: 'retroceder' }],
+  ['Multimedia y navegador', 'Video de YouTube: reiniciar', 'navegador_video', { accion: 'reiniciar' }],
+  ['Multimedia y navegador', 'Video de YouTube: siguiente', 'navegador_video', { accion: 'siguiente' }],
+  ['Multimedia y navegador', 'Video de YouTube: pantalla completa', 'navegador_video', { accion: 'pantalla_completa' }],
+  ['Multimedia y navegador', 'Video de YouTube: omitir el anuncio', 'navegador_video', { accion: 'omitir_anuncio' }],
+  ['Multimedia y navegador', 'Video de YouTube: recargar si da error', 'navegador_video', { accion: 'recargar' }],
+  ['Multimedia y navegador', 'Hacer clic en algo de la página (escribe el texto que se ve)', 'navegador_clic', { texto: '$' }, 'texto'],
+  ['Multimedia y navegador', 'Escribir en la página y pulsar Enter (escribe el texto)', 'navegador_escribir', { texto: '$' }, 'texto'],
+  ['Multimedia y navegador', 'Pulsar una tecla en la página (Space, Escape, PageDown…)', 'navegador_tecla', { tecla: '$' }, 'texto'],
+  ['Multimedia y navegador', 'Leer la página abierta', 'navegador_leer', {}],
+  ['Multimedia y navegador', 'Cerrar el navegador que abrió Radex', 'navegador_cerrar', {}],
+  ['Multimedia y navegador', 'Buscar en Google (escribe qué)', 'buscar', { consulta: '$', sitio: 'google' }, 'texto'],
+  ['Multimedia y navegador', 'Buscar en Maps (escribe qué)', 'buscar', { consulta: '$', sitio: 'maps' }, 'texto'],
+  ['Multimedia y navegador', 'Buscar en Wikipedia (escribe qué)', 'buscar', { consulta: '$', sitio: 'wikipedia' }, 'texto'],
+  ['Multimedia y navegador', 'Abrir un enlace en el navegador predeterminado (escribe la dirección completa)', 'abrir_web', { url: '$' }, 'texto'],
   ['Aplicaciones y ventanas', 'Abrir una aplicación (escribe el nombre)', 'abrir_aplicacion', { nombre: '$' }, 'texto'],
   ['Aplicaciones y ventanas', 'Abrir una carpeta (descargas, documentos…)', 'abrir_carpeta', { carpeta: '$' }, 'texto'],
   ['Aplicaciones y ventanas', 'Maximizar una ventana (escribe la app)', 'controlar_ventana', { aplicacion: '$', accion: 'maximizar' }, 'texto'],
   ['Aplicaciones y ventanas', 'Minimizar una ventana (escribe la app)', 'controlar_ventana', { aplicacion: '$', accion: 'minimizar' }, 'texto'],
+  ['Sistema', 'Decir la hora', 'hora_y_fecha', { que: 'hora' }],
+  ['Sistema', 'Decir la fecha de hoy', 'hora_y_fecha', { que: 'fecha' }],
+  ['Sistema', 'Decir la hora y la fecha', 'hora_y_fecha', { que: 'ambas' }],
+  ['Sistema', 'Informe completo del PC (especificaciones)', 'info_del_sistema', { detalle: 'completo' }],
+  ['Sistema', 'RAM y uso del PC (rápido)', 'info_del_sistema', { detalle: 'basico' }],
+  ['Sistema', 'Decir la batería y la conexión', 'estado_del_dispositivo', {}],
+  ['Sistema', 'Bloquear el PC', 'bloquear_pc', {}],
+  ['Memoria y atajos', 'Decir todo lo que recuerda', 'memoria_consultar', {}],
+  ['Memoria y atajos', 'Buscar en la memoria (escribe qué)', 'memoria_consultar', { busqueda: '$' }, 'texto'],
+  ['Utilidades', 'Poner un temporizador (escribe los minutos; para segundos usa decimales, p. ej. 0.5 = 30 s)', 'temporizador', { segundos: '$', etiqueta: 'Tiempo cumplido' }, 'minutos'],
+  ['Utilidades', 'Cambiar el color de la interfaz (escribe: cian, azul, verde, rojo, morado, naranja, rosa, amarillo o blanco)', 'cambiar_color_orbe', { color: '$' }, 'texto'],
+  ['Utilidades', 'Cambiar el avatar a orbe', 'cambiar_avatar', { avatar: 'orbe' }],
+  ['Utilidades', 'Cambiar el avatar a mujer (holograma)', 'cambiar_avatar', { avatar: 'mujer' }],
+  ['Utilidades', 'Cambiar el avatar a hombre (holograma)', 'cambiar_avatar', { avatar: 'hombre' }],
+  ['Utilidades', 'Copiar un texto al portapapeles (escribe el texto)', 'copiar_al_portapapeles', { texto: '$' }, 'texto'],
   ['Control de Radex', 'Dormirse (ignora todo menos tu orden de despertar)', 'ctl_dormir', {}],
   ['Control de Radex', 'Despertarse', 'ctl_despertar', {}],
+  ['Estado y deshacer', 'Decir qué dispositivos de audio hay y cuáles suenan (salida)', 'audio_estado', { direccion: 'salida' }],
+  ['Estado y deshacer', 'Decir qué micrófonos hay (entrada)', 'audio_estado', { direccion: 'entrada' }],
   ['Estado y deshacer', 'Decir qué audio uso (salida y micrófono)', 'audio_en_uso', { cual: 'ambos' }],
   ['Estado y deshacer', 'Decir qué está silenciado', 'audio_silenciados', { cual: 'ambos' }],
   ['Estado y deshacer', 'Reactivar todo', 'audio_reactivar_todo', {}],
   ['Estado y deshacer', 'Volver a la salida de antes', 'audio_volver_anterior', { cual: 'salida' }],
   ['Estado y deshacer', 'Volver al micrófono de antes', 'audio_volver_anterior', { cual: 'entrada' }],
 ];
+const ORD_CATS = CATALOGO.map((c) => c.cat); PLANTILLAS.sort((a, b) => ORD_CATS.indexOf(a[0]) - ORD_CATS.indexOf(b[0])); // (orden estable)
 const TOOL_CAT = {}; CATALOGO.forEach((c) => c.tools.forEach((t) => { TOOL_CAT[t] = c.cat; }));
 function descAtajo(x) {
-  const p = PLANTILLAS.find((q) => q[2] === x.t && Object.entries(q[3]).every(([k, v]) => v === '$' || v === '@' ? x.a && x.a[k] != null : x.a && String(x.a[k]) === String(v)));
+  const p = PLANTILLAS.filter((q) => q[2] === x.t && Object.entries(q[3]).every(([k, v]) => v === '$' || v === '@' ? x.a && x.a[k] != null : x.a && String(x.a[k]) === String(v))).sort((a, b) => Object.keys(b[3]).length - Object.keys(a[3]).length)[0];
   if (!p) return x.t + ' ' + JSON.stringify(x.a || {});
   const dato = Object.entries(p[3]).find(([, v]) => v === '$');
-  return p[1].replace(/ \(escribe[^)]*\)/, '') + (dato ? ': ' + (x.a[dato[0]] === '$' ? 'el número que digas (0 a 100)' : x.a[dato[0]]) : '') + (Object.entries(p[3]).some(([, v]) => v === '@') ? ' (' + x.a.dispositivo + ')' : '');
+  return p[1].replace(/ \((?:escribe|una sola orden|el número)[^)]*\)/g, '').replace(', 0 a 100', '').replace('CUALQUIER', 'cualquier') + (dato ? (x.a[dato[0]] === '$' ? '' : ': ' + (p[4] === 'minutos' ? (x.a[dato[0]] / 60) + ' min' : x.a[dato[0]])) : '') + (() => { const q = Object.entries(p[3]).find(([, v]) => v === '@'); return q ? ' (' + x.a[q[0]] + ')' : ''; })();
 }
 const RES_TXT = { atajo: ['Atajo ✓', 'ok'], cerebro: ['Entendida', 'ok'], silencio: ['El cerebro la ignoró', 'no'], 'no-orden': ['No parecía orden', 'no'], ruido: ['Ruido', 'no'], ignorada: ['Ignorada', 'no'] };
 let ordTab = 'conocidas', ordFiltro = 'todas', memCache = null, ordCat = '';
@@ -1709,7 +1771,7 @@ function pintarOrd() {
     const fila = (x, uso) => '<div class="it"><span>«' + esc(fraseAtajo(x)) + '» → ' + esc(descAtajo(x)) + (uso ? ' <small>(' + (x.n | 0) + ' usos)</small>' : '') + '</span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Quitar</button></div>';
     const entradas = CATALOGO.map((c) => {
       const mios = us.filter((x) => TOOL_CAT[x.t] === c.cat);
-      return { k: c.cat, n: mios.length, b: '<p class="m">Ejemplos que entiende (con otras palabras también): ' + c.ej.map((e) => '«' + esc(e) + '»').join(' · ') + '</p>' + mios.map((x) => fila(x, true)).join('') };
+      return { k: c.cat, n: mios.length, b: (c.nota ? '<p class="m"><b>Nota:</b> ' + esc(c.nota) + '</p>' : '') + '<p class="m">Ejemplos que entiende (con otras palabras también): ' + c.ej.map((e) => '«' + esc(e) + '»').join(' · ') + '</p>' + mios.map((x) => fila(x, true)).join('') };
     });
     const otros = us.filter((x) => !TOOL_CAT[x.t]);
     if (otros.length) entradas.push({ k: 'Otros atajos', n: otros.length, b: otros.map((x) => fila(x, false)).join('') });
@@ -1748,7 +1810,7 @@ function pintarOrd() {
 (function initOrd() {
   const sel = $('#ordAccion'); let cat = '', g = null;
   PLANTILLAS.forEach((p, i) => { if (p[0] !== cat) { cat = p[0]; g = document.createElement('optgroup'); g.label = cat; sel.appendChild(g); } g.appendChild(new Option(p[1], String(i))); });
-  const pintaParam = () => { const p = PLANTILLAS[+sel.value]; $('#ordParam').hidden = !p[4] || p[4] === 'variable'; $('#ordMsg').textContent = String(p[4] || '').startsWith('variable') ? 'Escribe la frase con un número de ejemplo, p. ej. «pon el volumen en 50». Ese número se cambia por el que digas cada vez.' : ''; $('#ordParam').type = p[4] === 'numero' ? 'number' : 'text'; $('#ordParam').placeholder = p[4] === 'numero' ? '0 a 100' : 'nombre'; };
+  const pintaParam = () => { const p = PLANTILLAS[+sel.value]; $('#ordParam').hidden = !p[4] || p[4] === 'variable'; $('#ordMsg').textContent = String(p[4] || '').startsWith('variable') ? 'Escribe la frase con un número de ejemplo, p. ej. «pon el volumen en 50». Ese número se cambia por el que digas cada vez.' : ''; $('#ordParam').type = ['numero', 'minutos'].includes(p[4]) ? 'number' : 'text'; $('#ordParam').step = p[4] === 'minutos' ? 'any' : '1'; $('#ordParam').placeholder = p[4] === 'numero' ? '0 a 100' : p[4] === 'minutos' ? 'minutos' : 'nombre o texto'; };
   sel.onchange = pintaParam; pintaParam();
   document.querySelectorAll('#ord .tab').forEach((b) => { b.onclick = () => { ordTab = b.dataset.t; if (ordTab === 'memoria') memCache = null; pintarOrd(); }; });
   $('#ordBtn').onclick = () => { ordTab = 'conocidas'; memCache = null; $('#ord').showModal(); pintarOrd(); };
@@ -1764,10 +1826,10 @@ function pintarOrd() {
       if (!pn) return msg('Escribe la frase con un número de ejemplo, p. ej. «pon el volumen en 50». Ese número se cambiará por el que digas.');
       const av = JSON.parse(JSON.stringify(p[3]));
       if (p[4] === 'variable-texto') {
-        const nom = $('#ordParam').value.trim(); if (!nom) return msg('Falta el nombre del dispositivo (laptop, externo, auriculares o parte del nombre).');
+        const nom = $('#ordParam').value.trim(); if (!nom) return msg('Falta el nombre (del dispositivo o de la aplicación, o parte del nombre).');
         Object.keys(av).forEach((q) => { if (av[q] === '@') av[q] = nom; });
       }
-      ATAJOS.items = ATAJOS.items.filter((x) => !(esVariable(x) && x.t === p[2] && String(x.a.dispositivo || '') === String(av.dispositivo || '') && similares(sinVerbos(pn.tpl), sinVerbos(x.f))));
+      ATAJOS.items = ATAJOS.items.filter((x) => !(esVariable(x) && x.t === p[2] && sinNum(x) === sinNum({ a: av }) && similares(sinVerbos(pn.tpl), sinVerbos(x.f))));
       ATAJOS.items.push({ f: pn.tpl, t: p[2], a: av, n: 0, c: Math.floor(Date.now() / 1000) });
       guardarAtajos(); $('#ordFrase').value = ''; $('#ordParam').value = '';
       return msg('Listo: «' + fraseAtajo({ f: pn.tpl }) + '» funciona con cualquier número de 0 a 100. Ejemplo: «' + pn.tpl.replace('#', '73') + '».');
@@ -1775,7 +1837,9 @@ function pintarOrd() {
     const a = JSON.parse(JSON.stringify(p[3]));
     if (p[4]) {
       const v = $('#ordParam').value.trim(); if (!v) return msg('Falta el dato que pide la acción.');
-      let val = v; if (p[4] === 'numero') { val = parseInt(v, 10); if (!(val >= 0 && val <= 100)) return msg('El número debe estar entre 0 y 100.'); }
+      let val = v;
+      if (p[4] === 'numero') { val = parseInt(v, 10); if (!(val >= 0 && val <= 100)) return msg('El número debe estar entre 0 y 100.'); }
+      if (p[4] === 'minutos') { val = Math.round(parseFloat(String(v).replace(',', '.')) * 60); if (!(val >= 1 && val <= 86400)) return msg('Escribe entre 0.1 y 1440 minutos.'); }
       Object.keys(a).forEach((q) => { if (a[q] === '$') a[q] = val; });
     }
     ATAJOS.items = ATAJOS.items.filter((x) => !similares(k, x.f));
