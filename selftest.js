@@ -135,9 +135,9 @@ async function audioLogicTests() {
   require('./tools/audio')(reg, fake);
   let r = await reg.invoke('audio_estado', {});
   check('audio_estado responde VERIFICADO', r.ok && r.verified && r.text.startsWith('VERIFICADO'), r.text);
-  check('nombra el dispositivo y su volumen', /Altavoces \(Realtek\), volumen 45%/.test(r.mensaje), r.mensaje);
+  check('nombra el dispositivo y su volumen', /altavoces de la laptop, volumen 45%/.test(r.mensaje) && !/Realtek/.test(r.mensaje), r.mensaje);
   check('dice qué app está sonando', /Sonando ahora: Spotify \(70%\)/.test(r.mensaje), r.mensaje);
-  check('avisa del dispositivo silenciado', /Auriculares USB \(volumen 80%, SILENCIADO\)/.test(r.mensaje), r.mensaje);
+  check('avisa del dispositivo silenciado', /auriculares con cable \(volumen 80%, SILENCIADO\)/.test(r.mensaje), r.mensaje);
   check('pide el comando fijo audio.leer del módulo audio', llamadas[0].cmd === 'audio.leer' && llamadas[0].opts.module === 'audio' && llamadas[0].args.direccion === 'salida');
   r = await reg.invoke('audio_estado', { direccion: 'micro' });
   check('rechaza una dirección no válida', !r.ok);
@@ -254,7 +254,7 @@ async function audioControlTests() {
   check('cambiar de dispositivo se hace directo (sin confirmación) y se verifica', r.ok && r.verified && !r.pending && st.devs[0].predeterminado && !st.devs[1].predeterminado && cambios() === c1 + 1, r.text);
   check('dice «Se ha cambiado a altavoces de la laptop.»', /^VERIFICADO: Se ha cambiado a altavoces de la laptop\./.test(r.text), r.text);
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'auriculares' });
-  check('auriculares con cable → «Se ha cambiado a altavoces externos.»', r.verified && st.devs[1].predeterminado && /Se ha cambiado a altavoces externos\./.test(r.text), r.text);
+  check('auriculares con cable → «Se ha cambiado a auriculares con cable.»', r.verified && st.devs[1].predeterminado && /Se ha cambiado a auriculares con cable\./.test(r.text), r.text);
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'parlantes' });
   check('alias "parlantes" → laptop', r.verified && st.devs[0].predeterminado && !st.devs[1].predeterminado, r.text);
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'altavoces' });
@@ -277,18 +277,18 @@ async function audioControlTests() {
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'laptop' });
   check('micrófono: si ya es el de la laptop → FALLÓ «Ya estás usando micrófono de la laptop»', !r.ok && /En Windows el micrófono en uso ya es: micrófono de la laptop/.test(r.text) && cambios() === c3, r.text);
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'audífonos inalámbricos' });
-  check('micrófono: a los audífonos se hace directo → «audífonos inalámbricos CORSAIR»', r.ok && r.verified && !r.pending && st.mics[1].predeterminado && !st.mics[0].predeterminado && /Se ha cambiado a audífonos inalámbricos CORSAIR\./.test(r.text), r.text);
+  check('micrófono: a los audífonos se hace directo → «audífonos inalámbricos» (sin marca)', r.ok && r.verified && !r.pending && st.mics[1].predeterminado && !st.mics[0].predeterminado && /Se ha cambiado a audífonos inalámbricos\./.test(r.text) && !/CORSAIR/i.test(r.text), r.text);
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'externo' });
   check('micrófono: «externo» elige el USB (no la laptop, ni el Corsair, ni la mezcla) → «micrófono externo»', r.verified && st.mics[2].predeterminado && /Se ha cambiado a micrófono externo\./.test(r.text), r.text);
   st.mics[2].nombre = 'Micrófono (ETHOS 101)';
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'laptop' });
   check('micrófono: la laptop → «micrófono de la laptop»', r.verified && st.mics[0].predeterminado && /Se ha cambiado a micrófono de la laptop\./.test(r.text), r.text);
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'externo' });
-  check('micrófono: externo con modelo → «micrófono externo ETHOS 101»', r.verified && st.mics[2].predeterminado && /Se ha cambiado a micrófono externo ETHOS 101\./.test(r.text), r.text);
+  check('micrófono: externo con modelo → «micrófono externo» (sin modelo)', r.verified && st.mics[2].predeterminado && /Se ha cambiado a micrófono externo\./.test(r.text) && !/ETHOS/.test(r.text), r.text);
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'mezcla estereo' });
   check('micrófono: la mezcla estéreo nunca se ofrece', !r.ok && !r.pending, r.text);
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'externo' });
-  check('micrófono: si ya es el predeterminado → FALLÓ «Ya estás usando …»', !r.ok && /En Windows el micrófono en uso ya es: micrófono externo ETHOS 101/.test(r.text), r.text);
+  check('micrófono: si ya es el predeterminado → FALLÓ «Ya estás usando …»', !r.ok && /En Windows el micrófono en uso ya es: micrófono externo/.test(r.text) && !/ETHOS/.test(r.text), r.text);
   const idOriginal = st.mics[1].id; st.mics[1].id = 'x; calc.exe';
   const c3b = cambios();
   r = await reg.invoke('audio_cambiar_microfono', { dispositivo: 'corsair' });
@@ -303,7 +303,7 @@ async function audioControlTests() {
   r = await reg.invoke('audio_en_uso', { cual: 'salida' });
   check('audio_en_uso: si solo preguntan por la salida, solo contesta la salida', r.ok && /Salida en uso/.test(r.mensaje) && !/Entrada/.test(r.mensaje), r.text);
   const nm = require('./tools/audio-nombres');
-  check('nombres: audífonos Corsair → «audífonos inalámbricos CORSAIR» (salida y entrada)', nm.etiquetaSalida({ nombre: 'Altavoces (CORSAIR HS80 RGB WIRELESS Gaming Receiver)' }) === 'audífonos inalámbricos CORSAIR');
+  check('nombres: audífonos Corsair → «audífonos inalámbricos» sin marca', nm.etiquetaSalida({ nombre: 'Altavoces (CORSAIR HS80 RGB WIRELESS Gaming Receiver)' }) === 'audífonos inalámbricos');
   check('nombres: modelo del micrófono externo', nm.modeloDe('Micrófono (ETHOS 101)') === 'ETHOS 101' && nm.modeloDe('Micrófono (USB Audio Device)') === '' && nm.modeloDe('Microphone (USB PnP Sound Device)') === '');
 
   // Nombres que Windows pone y no se reconocen: por descarte, y enseñándolos
@@ -369,7 +369,7 @@ async function audioControlTests() {
   r = await reg.invoke('audio_volver_anterior', { cual: 'entrada' });
   check('volver al anterior: el micrófono de antes (laptop), directo y verificado', r.ok && r.verified && st.mics[0].predeterminado && /Se ha vuelto a micrófono de la laptop\./.test(r.text), r.text);
   r = await reg.invoke('audio_volver_anterior', { cual: 'entrada' });
-  check('volver al anterior otra vez te lleva de regreso (Corsair)', r.verified && st.mics[1].predeterminado && /audífonos inalámbricos CORSAIR/.test(r.text), r.text);
+  check('volver al anterior otra vez te lleva de regreso (audífonos inalámbricos)', r.verified && st.mics[1].predeterminado && /audífonos inalámbricos/.test(r.text) && !/CORSAIR/i.test(r.text), r.text);
   const c5 = cambios();
   st.mics[0].activo = false;
   const copia = st.mics.splice(0, 1)[0]; // la laptop «desaparece» (desconectada)
@@ -393,6 +393,12 @@ async function audioControlTests() {
   check('silencio temporal: queda anotado en disco (por si Radex se cierra)', fsT.existsSync(fTemp));
   await esperar(1600);
   check('silencio temporal: pasado el tiempo se reactiva solo, avisa y borra la nota', st.mics[0].silenciado === false && !ctlT.hayTemporales() && avisos.length === 1 && /activado otra vez/.test(avisos[0]) && !fsT.existsSync(fTemp), JSON.stringify(avisos));
+  avisos.length = 0;
+  // Silencio temporal de una SALIDA: al reactivarse, el aviso no debe hablar de «micrófono»
+  const salDef = st.devs.find((d) => d.predeterminado) || st.devs[0]; salDef.silenciado = false;
+  r = await reg.invoke('audio_salida_volumen', { accion: 'silenciar', segundos: 1 });
+  await esperar(1600);
+  check('silencio temporal de la salida: al reactivarse dice «Sonido activado otra vez», no «Micrófono»', salDef.silenciado === false && avisos.length === 1 && /^Sonido activado otra vez/.test(avisos[0]) && !/icr[óo]fono/i.test(avisos[0]), JSON.stringify(avisos));
   avisos.length = 0;
   await reg.invoke('audio_microfono_volumen', { accion: 'silenciar', segundos: 1 });
   await reg.invoke('audio_microfono_volumen', { accion: 'activar_sonido' });
