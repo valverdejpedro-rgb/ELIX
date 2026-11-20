@@ -75,9 +75,10 @@ function modeloDe(nombre) {
 function etiquetaMic(dev, mapa) {
   const c = mapa ? mapa.get(dev) : null, nombre = (dev && dev.nombre) || '';
   if (c === 'laptop') return 'micrófono de la laptop';
-  if (c === 'auriculares') { const marca = marcaDe(nombre); return (INALAMB.test(norm(nombre)) ? 'audífonos inalámbricos' : 'audífonos') + (marca ? ' ' + marca : ''); }
-  if (c === 'externo') { const mo = modeloDe(nombre); return 'micrófono externo' + (mo ? ' ' + mo : ''); }
-  return nombre ? `micrófono «${nombre}»` : 'micrófono';
+  // Sin marcas ni modelos (Realtek, Corsair, ETHOS…): solo el tipo de dispositivo
+  if (c === 'auriculares') return INALAMB.test(norm(nombre)) ? 'audífonos inalámbricos' : 'audífonos';
+  if (c === 'externo') return 'micrófono externo';
+  return 'otro micrófono';
 }
 
 // ---- Salida (altavoces/auriculares) ----
@@ -92,9 +93,10 @@ const ETIQUETA_SALIDA = { inalambrico: 'los audífonos inalámbricos', cable: 'l
 function etiquetaSalida(dev) {
   const nombre = (dev && dev.nombre) || '', c = categoriaSalida(nombre);
   if (c === 'laptop') return 'altavoces de la laptop';
-  if (c === 'inalambrico') { const marca = marcaDe(nombre); return 'audífonos inalámbricos' + (marca ? ' ' + marca : ''); }
-  if (c === 'cable') return 'altavoces externos';
-  return nombre ? `«${nombre}»` : 'otro dispositivo';
+  if (c === 'inalambrico') return 'audífonos inalámbricos';
+  if (c === 'cable') return 'auriculares con cable';
+  if (/hdmi|displayport|nvidia|monitor|digital|spdif/.test(norm(nombre))) return 'la salida del monitor';
+  return 'otro dispositivo de salida';
 }
 
 module.exports = { norm, setDir, dirDatos, leerAlias, guardarAlias, clasificarEntradas, etiquetaMic, etiquetaSalida, modeloDe, marcaDe, categoriaSalida, ETIQUETA_ENTRADA, ETIQUETA_SALIDA, ROLES_ENTRADA };

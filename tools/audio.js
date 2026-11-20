@@ -69,12 +69,14 @@ function registerAudio(registry, bridge) {
     if (!devs.length) return { mensaje: salida ? 'Windows no muestra ningún dispositivo de salida de audio activo.' : 'Windows no muestra ningún micrófono activo.' };
 
     const def = devs.find((x) => x.predeterminado) || devs[0];
+    const mapaE = salida ? null : clasificarEntradas(devs);
+    const lab = (x) => (salida ? etiquetaSalida(x) : etiquetaMic(x, mapaE)); // sin marcas ni modelos
     const vol = (x) => (x.volumen == null ? 'volumen desconocido' : `volumen ${x.volumen}%`) + (x.silenciado ? ', SILENCIADO' : '');
-    const partes = [`${salida ? 'Dispositivo de salida predeterminado' : 'Micrófono predeterminado'}: ${def.nombre || '(sin nombre)'}, ${vol(def)}`];
+    const partes = [`${salida ? 'Dispositivo de salida predeterminado' : 'Micrófono predeterminado'}: ${lab(def)}, ${vol(def)}`];
     if (salida) partes.push(def.pico >= SUENA ? 'por él está saliendo sonido ahora mismo' : 'por él no sale sonido en este momento');
     else partes.push(def.pico >= SUENA ? 'el micrófono está captando sonido' : 'el micrófono no capta sonido en este momento');
     const otros = devs.filter((x) => x !== def);
-    if (otros.length) partes.push('otros dispositivos activos: ' + otros.map((x) => `${x.nombre || '(sin nombre)'} (${vol(x)})`).join('; '));
+    if (otros.length) partes.push('otros dispositivos activos: ' + otros.map((x) => `${lab(x)} (${vol(x)})`).join('; '));
 
     if (salida) {
       // Una app "suena" si su medidor marca señal; las demás solo tienen la sesión abierta

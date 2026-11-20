@@ -269,21 +269,21 @@ module.exports = function registerAudioControl(registry, bridge) {
     try {
       if (!temporales.size) { try { fs.unlinkSync(f); } catch {} return; }
       fs.mkdirSync(path.dirname(f), { recursive: true });
-      fs.writeFileSync(f + '.tmp', JSON.stringify({ v: 1, items: [...temporales].map(([id, t]) => ({ id, hasta: t.hasta, nombre: t.nombre })) }), 'utf8');
+      fs.writeFileSync(f + '.tmp', JSON.stringify({ v: 1, items: [...temporales].map(([id, t]) => ({ id, hasta: t.hasta, nombre: t.nombre, dir: t.dir })) }), 'utf8');
       fs.renameSync(f + '.tmp', f);
     } catch {}
   }
   function cancelarTemporal(id) { const t = temporales.get(id); if (t) { clearTimeout(t.timer); temporales.delete(id); guardarTemporales(); } }
-  function programar(id, nombre, ms) {
+  function programar(id, nombre, ms, dir) {
     const prev = temporales.get(id); if (prev) clearTimeout(prev.timer);
-    const timer = setTimeout(() => { reactivar(id, nombre); }, ms);
+    const timer = setTimeout(() => { reactivar(id, nombre, dir); }, ms);
     if (timer.unref) timer.unref();
-    temporales.set(id, { timer, hasta: Date.now() + ms, nombre });
+    temporales.set(id, { timer, hasta: Date.now() + ms, nombre, dir });
     guardarTemporales();
   }
   // ---- Estado visible en pantalla: qué entradas/salidas están silenciadas (y cuánto falta si es temporal) ----
   let emitirEstado = () => {}, ultimoEstado = '', sondeo = null;
-  async function estadoSilencios() {
+  async function estadoSilencios(conApps) {
     const sil = (dir, L) => L.todos.filter((x) => x.silenciado === true).map((x) => {
       const t = temporales.get(x.id);
       return { dir, id: x.id, nombre: L.etiqueta(x), nombreWindows: x.nombre || '', predeterminado: !!x.predeterminado, hasta: t ? t.hasta : null };
@@ -293,6 +293,12 @@ module.exports = function registerAudioControl(registry, bridge) {
     const LE = await leerDisp('entrada'), LS = await leerDisp('salida');
     items.push(...sil('entrada', LE)); items.push(...sil('salida', LS));
     uso.entrada = en(LE); uso.salida = en(LS); // lo que el equipo (Windows) tiene en uso ahora
+    if (conApps) { // aplicaciones con sesión de audio (juegos, música, navegador…): para el panel «En uso»
+      try {
+        const d = await leerAudio(bridge, 'salida'), apps = Array.isArray(d.apps) ? d.apps : [];
+        uso.apps = apps.map((a) => ({ nombre: String(a.nombre || '').slice(0, 60), volumen: a.volumen == null ? null : a.volumen, silenciada: !!a.silenciada, sonando: !a.silenciada && a.pico >= 2 })).slice(0, 20);
+      } catch { uso.apps = null; }
+    }
     return { items, uso };
   }
   let notificando = false;
@@ -310,13 +316,15 @@ module.exports = function registerAudioControl(registry, bridge) {
     if (sondeo.unref) sondeo.unref();
     notificarEstado();
   }
-  async function reactivar(id, nombre) {
+  async function reactivar(id, nombre, dirPedido) {
+    const dirGuardado = (temporales.get(id) || {}).dir || dirPedido;
     cancelarTemporal(id);
-    let ok = false;
+    let ok = false, dirReal = null;
     for (let i = 0; i < 2 && !ok; i++) {
       try {
         let antes = (await leerMics()).todos.find((x) => x.id === id);
-        if (!antes) antes = ((await leerAudio(bridge, 'salida')).dispositivos || []).find((x) => x.id === id);
+        if (antes) dirReal = 'entrada';
+        if (!antes) { antes = ((await leerAudio(bridge, 'salida')).dispositivos || []).find((x) => x.id === id); if (antes) dirReal = 'salida'; }
         const rec = volRecordado(id);
         const nivel = rec != null && antes && antes.volumen != null && Math.abs(antes.volumen - rec) > 2 ? rec : -1; // solo si algo lo movió mientras estaba en silencio
         await bridge.request('audio.nivel_dispositivo', { id, nivel, silencio: 0 }, { module: 'audio-control', timeout: 30000 });
@@ -325,7 +333,8 @@ module.exports = function registerAudioControl(registry, bridge) {
         ok = !!dv && dv.silenciado === false;
       } catch {}
     }
-    try { avisar(ok ? `Micrófono activado otra vez${nombre ? ' (' + nombre + ')' : ''}.` : `No pude reactivar el micrófono${nombre ? ' (' + nombre + ')' : ''}. Escríbeme «activa el micrófono» o actívalo en Windows.`); } catch {}
+    const esMic = (dirReal || dirGuardado) === 'entrada'; // el aviso dice «micrófono» solo si lo silenciado era un micrófono
+    try { avisar(ok ? `${esMic ? 'Micrófono' : 'Sonido'} activado otra vez${nombre ? ' (' + nombre + ')' : ''}.` : `No pude reactivar ${esMic ? 'el micrófono' : 'el sonido'}${nombre ? ' (' + nombre + ')' : ''}. ${esMic ? 'Escríbeme «activa el micrófono»' : 'Escríbeme «quita el silencio a la salida»'} o actívalo en Windows.`); } catch {}
     notificarEstado();
     return ok;
   }
@@ -336,15 +345,15 @@ module.exports = function registerAudioControl(registry, bridge) {
     for (const it of items) {
       if (!it || !ID_RE.test(String(it.id))) continue;
       const resta = Number(it.hasta) - Date.now();
-      if (resta > 1500) programar(it.id, it.nombre || '', resta); else await reactivar(it.id, it.nombre || '');
+      if (resta > 1500) programar(it.id, it.nombre || '', resta, it.dir); else await reactivar(it.id, it.nombre || '', it.dir);
     }
   }
-  async function liberar() { for (const [id, t] of [...temporales]) await reactivar(id, t.nombre); } // al cerrar Radex
+  async function liberar() { for (const [id, t] of [...temporales]) await reactivar(id, t.nombre, t.dir); } // al cerrar Radex
   tempCtl = {
     recuperar, liberar, hayTemporales: () => temporales.size > 0,
     setAvisar: (fn) => { avisar = typeof fn === 'function' ? fn : () => {}; },
     setEstado: (fn) => { emitirEstado = typeof fn === 'function' ? fn : () => {}; ultimoEstado = ''; },
-    estado: async () => { try { const e = await estadoSilencios(); ultimoEstado = JSON.stringify([e.items.map((x) => [x.id, x.hasta]), e.uso && e.uso.entrada && e.uso.entrada.id, e.uso && e.uso.salida && e.uso.salida.id]); return e; } catch { return { items: [], uso: {} }; } },
+    estado: async () => { try { const e = await estadoSilencios(true); ultimoEstado = JSON.stringify([e.items.map((x) => [x.id, x.hasta]), e.uso && e.uso.entrada && e.uso.entrada.id, e.uso && e.uso.salida && e.uso.salida.id]); return e; } catch { return { items: [], uso: {} }; } },
     iniciarSondeo,
   };
 
@@ -432,7 +441,7 @@ module.exports = function registerAudioControl(registry, bridge) {
           try { await bridge.request('audio.nivel_dispositivo', { id: o.id, nivel: o.nivel == null ? -1 : o.nivel, silencio: r.silencio }, { module: 'audio-control', timeout: 30000 }); }
           catch (e) { return { ok: false, mensaje: `No pude cambiar ${entrada ? 'el micrófono' : 'la salida'} (${o.nombre}): ${e.message}` }; }
           // Silencio temporal: el temporizador se arma ya (aunque falle la comprobación) para que nunca quede silenciado de más
-          if (r.silencio === 1 && r.segundos) programar(o.id, o.nombre, r.segundos * 1000);
+          if (r.silencio === 1 && r.segundos) programar(o.id, o.nombre, r.segundos * 1000, dir);
           else if (r.silencio >= 0) cancelarTemporal(o.id); // silencio permanente, o activar el sonido: se anula cualquier temporizador
         }
         notificarEstado();
