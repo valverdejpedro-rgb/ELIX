@@ -131,6 +131,8 @@
   #ord .m{color:var(--mute);font-size:14px;margin:2px 0 6px}
   #ord .it{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
   #ord .it small{color:var(--mute)}
+  #ordBuscarC,#ordBuscar{width:100%;box-sizing:border-box;padding:6px 8px;background:var(--panel);color:var(--ice);border:1px solid var(--line);border-radius:8px;font:inherit;font-size:16px}
+  #ordBusqC{margin-bottom:4px}
   #ord .catb{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;margin-top:6px;padding:8px 10px;background:var(--panel);color:var(--ice);border:1px solid var(--line);border-radius:8px;font:inherit;font-size:16px;text-align:left;cursor:pointer}
   #ord .catb:hover,#ord .catb.on{border-color:var(--cy);color:var(--cy)}
   #ord .catb small{color:var(--mute);font-size:13px}
@@ -178,10 +180,12 @@
     <button type="button" class="mini tab" data-t="memoria">Memoria</button>
   </div>
   <div class="scroll">
+    <div class="pane" data-t="conocidas" id="ordBusqC"><input type="search" id="ordBuscarC" placeholder="Buscar en todas las categorías… (ej.: silenciar, micrófono, hora)" autocomplete="off"></div>
     <div class="pane" data-t="conocidas" id="ordP1"></div>
     <div class="pane" data-t="anadir" id="ordP3" hidden>
       <p class="m">Enséñale una frase nueva (por ejemplo, cómo te sale cuando hablas lejos del micrófono) y elige qué debe hacer. Se ejecuta al instante, sin gastar tokens y sin decir «Radex».</p>
       <div class="fila"><label for="ordFrase">Cuando yo diga</label><input type="text" id="ordFrase" placeholder="ej.: pon los parlantes" autocomplete="off"></div>
+      <div class="fila"><label for="ordBuscar">Buscar acción</label><input type="search" id="ordBuscar" placeholder="ej.: silenciar, micrófono, hora, youtube…" autocomplete="off"></div>
       <div class="fila"><label for="ordAccion">Quiero que haga</label><select id="ordAccion"></select><input type="text" id="ordParam" hidden autocomplete="off"></div>
       <div class="btns"><button type="button" class="mini" id="ordGuardar">Guardar orden</button></div>
       <p class="m" id="ordMsg"></p>
@@ -1474,7 +1478,7 @@ const claveVar = (x) => Object.keys(x.a).find((q) => x.a[q] === '$');
 const VAR_RELLENO = new Set(['sube', 'subir', 'baja', 'bajar', 'pon', 'poner', 'ponlo', 'deja', 'dejalo', 'dejar', 'establece', 'ajusta', 'cambia', 'coloca', 'lleva', 'a', 'en', 'al', 'hasta', 'de', 'del', 'los', 'las']);
 const sinVerbos = (t) => String(t).split(' ').filter((w) => !VAR_RELLENO.has(w)).join(' '); // «sube / baja / pon … a / en» dan igual: lo que cuenta es la cosa y el número
 const sinNum = (x) => { const a = { ...x.a }; delete a[Object.keys(a).find((q) => a[q] === '$')]; return estable(a); }; // los argumentos fijos de una orden con número variable
-const fraseAtajo = (x) => String(x.f).replace('#', '[número]');
+const fraseAtajo = (x) => String(x.f).replace('#', esVariable(x) && claveVar(x) === 'segundos' ? '[tiempo]' : '[número]');
 function buscarAtajo(text) {
   const k = claveAtajo(text); if (!k) return null;
   const fijo = ATAJOS.items.find((x) => !esVariable(x) && similares(k, x.f));
@@ -1667,6 +1671,16 @@ const CATALOGO = [
 ];
 // [categoría, descripción, herramienta, argumentos ('$' = lo que escribas), tipo de dato que pide]
 const PLANTILLAS = [
+  ['Salida de sonido', 'Silenciar la salida en uso', 'audio_salida_volumen', { accion: 'silenciar' }],
+  ['Salida de sonido', 'Quitar el silencio a la salida en uso', 'audio_salida_volumen', { accion: 'activar_sonido' }],
+  ['Salida de sonido', 'Silenciar los altavoces de la laptop (internos)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'laptop' }],
+  ['Salida de sonido', 'Quitar el silencio a los altavoces de la laptop (internos)', 'audio_salida_volumen', { accion: 'activar_sonido', dispositivo: 'laptop' }],
+  ['Salida de sonido', 'Silenciar los auriculares con cable', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'auriculares' }],
+  ['Salida de sonido', 'Quitar el silencio a los auriculares con cable', 'audio_salida_volumen', { accion: 'activar_sonido', dispositivo: 'auriculares' }],
+  ['Salida de sonido', 'Silenciar los audífonos inalámbricos (Corsair)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'inalambricos' }],
+  ['Salida de sonido', 'Quitar el silencio a los audífonos inalámbricos (Corsair)', 'audio_salida_volumen', { accion: 'activar_sonido', dispositivo: 'inalambricos' }],
+  ['Salida de sonido', 'Silenciar otro dispositivo (escribe parte del nombre)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: '$' }, 'texto'],
+  ['Salida de sonido', 'Quitar el silencio a otro dispositivo (escribe parte del nombre)', 'audio_salida_volumen', { accion: 'activar_sonido', dispositivo: '$' }, 'texto'],
   ['Salida de sonido', 'Silenciar la salida en uso por CUALQUIER tiempo (una sola orden: el tiempo lo dices al hablar, en segundos, minutos u horas)', 'audio_salida_volumen', { accion: 'silenciar', segundos: '$' }, 'variable'],
   ['Salida de sonido', 'Silenciar los altavoces de la laptop por CUALQUIER tiempo (el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'laptop', segundos: '$' }, 'variable'],
   ['Salida de sonido', 'Silenciar los auriculares con cable por CUALQUIER tiempo (el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'auriculares', segundos: '$' }, 'variable'],
@@ -1689,6 +1703,8 @@ const PLANTILLAS = [
   ['Micrófono', 'Silenciar el micrófono en uso por CUALQUIER tiempo (una sola orden: el tiempo lo dices al hablar, en segundos, minutos u horas)', 'audio_microfono_volumen', { accion: 'silenciar', segundos: '$' }, 'variable'],
   ['Micrófono', 'Silenciar un micrófono concreto por CUALQUIER tiempo (escribe laptop, externo, auriculares, todos o parte del nombre; el tiempo lo dices al hablar)', 'audio_microfono_volumen', { accion: 'silenciar', dispositivo: '@', segundos: '$' }, 'variable-texto'],
   ['Micrófono', 'Silenciar el micrófono en uso', 'audio_microfono_volumen', { accion: 'silenciar' }],
+  ['Micrófono', 'Silenciar un micrófono concreto (escribe laptop, externo, auriculares, todos o parte del nombre)', 'audio_microfono_volumen', { accion: 'silenciar', dispositivo: '$' }, 'texto'],
+  ['Micrófono', 'Activar un micrófono concreto (escribe laptop, externo, auriculares, todos o parte del nombre)', 'audio_microfono_volumen', { accion: 'activar_sonido', dispositivo: '$' }, 'texto'],
   ['Micrófono', 'Activar el micrófono en uso', 'audio_microfono_volumen', { accion: 'activar_sonido' }],
   ['Micrófono', 'Subir el micrófono', 'audio_microfono_volumen', { accion: 'subir' }],
   ['Micrófono', 'Bajar el micrófono', 'audio_microfono_volumen', { accion: 'bajar' }],
@@ -1790,16 +1806,28 @@ function pintarOrd() {
     let h = ATAJOS.on ? '' : '<p class="m">Los atajos solo funcionan en la app de escritorio.</p>';
     if (STRICT.on) h += '<p class="m"><b>Modo «solo mis órdenes» activo:</b> solo funcionan las que aparecen abajo como «→». Los ejemplos en gris son de lo que entiende el cerebro y en este modo no se usan.</p>';
     const fila = (x, uso) => '<div class="it"><span>«' + esc(fraseAtajo(x)) + '» → ' + esc(descAtajo(x)) + (uso ? ' <small>(' + (x.n | 0) + ' usos)</small>' : '') + '</span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Quitar</button></div>';
-    const entradas = CATALOGO.map((c) => {
-      const mios = us.filter((x) => TOOL_CAT[x.t] === c.cat);
-      return { k: c.cat, n: mios.length, b: (c.nota ? '<p class="m"><b>Nota:</b> ' + esc(c.nota) + '</p>' : '') + '<p class="m">Ejemplos que entiende (con otras palabras también): ' + c.ej.map((e) => '«' + esc(e) + '»').join(' · ') + '</p>' + mios.map((x) => fila(x, true)).join('') };
+    const qC = normText($('#ordBuscarC').value);
+    const coincide = (t) => !qC || qC.split(' ').every((w) => normText(t).includes(w));
+    const etiq = (q) => q[1].replace(/ \((?:escribe|una sola orden|el número|el tiempo)[^)]*\)/g, '').replace(', 0 a 100', '').replace('CUALQUIER', 'cualquier');
+    const entradas = [];
+    CATALOGO.forEach((c) => {
+      const mios = us.filter((x) => TOOL_CAT[x.t] === c.cat), todo = coincide(c.cat);
+      const ej = todo ? c.ej : c.ej.filter(coincide), mi = todo ? mios : mios.filter((x) => coincide(fraseAtajo(x) + ' ' + descAtajo(x)));
+      const ac = qC ? PLANTILLAS.filter((q) => q[0] === c.cat && (todo || coincide(q[1]))) : [];
+      if (qC && !ej.length && !mi.length && !ac.length) return;
+      entradas.push({ k: c.cat, n: mios.length, b: (c.nota ? '<p class="m"><b>Nota:</b> ' + esc(c.nota) + '</p>' : '')
+        + (ej.length ? '<p class="m">Ejemplos que entiende (con otras palabras también): ' + ej.map((e) => '«' + esc(e) + '»').join(' · ') + '</p>' : '')
+        + (ac.length ? '<p class="m"><b>Acciones que puedes asignar en «Añadir»:</b></p>' + ac.map((q) => '<div class="it"><span>' + esc(etiq(q)) + '</span></div>').join('') : '')
+        + mi.map((x) => fila(x, true)).join('') });
     });
-    const otros = us.filter((x) => !TOOL_CAT[x.t]);
+    const otros = us.filter((x) => !TOOL_CAT[x.t] && coincide(fraseAtajo(x) + ' ' + descAtajo(x)));
     if (otros.length) entradas.push({ k: 'Otros atajos', n: otros.length, b: otros.map((x) => fila(x, false)).join('') });
-    if (bloq.length) entradas.push({ k: 'Dijiste «no guardar»', n: bloq.length, b: bloq.map((x) => '<div class="it"><span>«' + esc(fraseAtajo(x)) + '»</span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Permitir de nuevo</button></div>').join('') });
-    h += '<p class="m">Toca una categoría para ver sus órdenes.</p>';
+    const bq = bloq.filter((x) => coincide(fraseAtajo(x)));
+    if (bq.length) entradas.push({ k: 'Dijiste «no guardar»', n: bq.length, b: bq.map((x) => '<div class="it"><span>«' + esc(fraseAtajo(x)) + '»</span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Permitir de nuevo</button></div>').join('') });
+    if (qC && !entradas.length) h += '<p class="m">Nada coincide con «' + esc($('#ordBuscarC').value) + '».</p>';
+    if (!qC) h += '<p class="m">Toca una categoría para ver sus órdenes, o busca arriba en todas a la vez.</p>';
     entradas.forEach((e) => {
-      const ab = ordCat === e.k;
+      const ab = qC ? true : ordCat === e.k; // buscando, se abren todas las que coinciden
       h += '<button type="button" class="catb' + (ab ? ' on' : '') + '" data-c="' + esc(e.k) + '"><span>' + (ab ? '▾ ' : '▸ ') + esc(e.k) + '</span><small>' + (e.n ? e.n + (e.n === 1 ? ' orden tuya' : ' órdenes tuyas') : 'solo ejemplos') + '</small></button>' + (ab ? '<div class="catc">' + e.b + '</div>' : '');
     });
     $('#ordP1').innerHTML = h;
@@ -1830,16 +1858,29 @@ function pintarOrd() {
 }
 (function initOrd() {
   const sel = $('#ordAccion'); let cat = '', g = null;
-  PLANTILLAS.forEach((p, i) => { if (p[0] !== cat) { cat = p[0]; g = document.createElement('optgroup'); g.label = cat; sel.appendChild(g); } g.appendChild(new Option(p[1], String(i))); });
-  const pintaParam = () => { const p = PLANTILLAS[+sel.value]; $('#ordParam').hidden = !p[4] || p[4] === 'variable'; $('#ordMsg').textContent = String(p[4] || '').startsWith('variable') ? (p[3].segundos === '$' ? 'Escribe la frase con un tiempo de ejemplo, p. ej. «silencia el micrófono por 30 segundos». Ese tiempo se cambia por el que digas cada vez (segundos, minutos u horas).' : 'Escribe la frase con un número de ejemplo, p. ej. «pon el volumen en 50». Ese número se cambia por el que digas cada vez.') : ''; $('#ordParam').type = ['numero', 'minutos'].includes(p[4]) ? 'number' : 'text'; $('#ordParam').step = p[4] === 'minutos' ? 'any' : '1'; $('#ordParam').placeholder = p[4] === 'numero' ? '0 a 100' : p[4] === 'minutos' ? 'minutos' : 'nombre o texto'; };
-  sel.onchange = pintaParam; pintaParam();
+  const pintaParam = () => { const p = sel.value === '' ? null : PLANTILLAS[+sel.value]; if (!p) { $('#ordParam').hidden = true; return; } $('#ordParam').hidden = !p[4] || p[4] === 'variable'; $('#ordMsg').textContent = String(p[4] || '').startsWith('variable') ? (p[3].segundos === '$' ? 'Escribe la frase con un tiempo de ejemplo, p. ej. «silencia el micrófono por 30 segundos». Ese tiempo se cambia por el que digas cada vez (segundos, minutos u horas).' : 'Escribe la frase con un número de ejemplo, p. ej. «pon el volumen en 50». Ese número se cambia por el que digas cada vez.') : ''; $('#ordParam').type = ['numero', 'minutos'].includes(p[4]) ? 'number' : 'text'; $('#ordParam').step = p[4] === 'minutos' ? 'any' : '1'; $('#ordParam').placeholder = p[4] === 'numero' ? '0 a 100' : p[4] === 'minutos' ? 'minutos' : 'nombre o texto'; };
+  const llena = () => { // lista de acciones, filtrada por lo que escribas en «Buscar acción» (categoría o texto)
+    const q = normText($('#ordBuscar').value), previo = sel.value; sel.innerHTML = ''; let c2 = '', g2 = null, n = 0;
+    PLANTILLAS.forEach((p, i) => {
+      if (q && !q.split(' ').every((w) => normText(p[0] + ' ' + p[1]).includes(w))) return;
+      if (p[0] !== c2) { c2 = p[0]; g2 = document.createElement('optgroup'); g2.label = c2; sel.appendChild(g2); }
+      g2.appendChild(new Option(p[1], String(i))); n++;
+    });
+    if (!n) sel.appendChild(new Option('(ninguna acción coincide con la búsqueda)', ''));
+    else if ([...sel.options].some((o) => o.value === previo)) sel.value = previo;
+    pintaParam();
+  };
+  $('#ordBuscar').oninput = llena;
+  sel.onchange = pintaParam; llena();
   document.querySelectorAll('#ord .tab').forEach((b) => { b.onclick = () => { ordTab = b.dataset.t; if (ordTab === 'memoria') memCache = null; pintarOrd(); }; });
   $('#ordBtn').onclick = () => { ordTab = 'conocidas'; memCache = null; $('#ord').showModal(); pintarOrd(); };
+  $('#ordBuscarC').oninput = pintarOrd;
   $('#ordClose').onclick = () => $('#ord').close();
   $('#ordGuardar').onclick = () => {
     const msg = (t) => { $('#ordMsg').textContent = t; };
     if (!ATAJOS.on) return msg('Los atajos solo funcionan en la app de escritorio.');
-    const frase = $('#ordFrase').value.trim(), p = PLANTILLAS[+sel.value], k = claveAtajo(frase);
+    const frase = $('#ordFrase').value.trim(), p = sel.value === '' ? null : PLANTILLAS[+sel.value], k = claveAtajo(frase);
+    if (!p) return msg('No hay ninguna acción elegida: borra la búsqueda o elige otra de la lista.');
     if (!k || k.split(' ').length > 12 || frase.length > 140) return msg('Escribe una frase corta (hasta 12 palabras).');
     if (SECRETO_ATAJO.test(frase)) return msg('Esa frase tiene algo que parece una clave o un número largo; no la guardo.');
     if (String(p[4] || '').startsWith('variable')) { // una sola orden para cualquier número
