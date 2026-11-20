@@ -1432,7 +1432,7 @@ function textoDirecto(calls, saltados) {
 const estable = (o) => JSON.stringify(o || {}, Object.keys(o || {}).sort());
 const LEARNABLE = new Set(['energia_cambiar_plan', 'energia_planes', 'audio_volumen_app', 'audio_cambiar_dispositivo', 'audio_cambiar_microfono', 'audio_microfono_volumen', 'audio_salida_volumen', 'audio_silenciados', 'audio_reactivar_todo', 'audio_volver_anterior', 'audio_en_uso', 'ajustar_volumen', 'control_multimedia', 'abrir_aplicacion', 'abrir_carpeta', 'controlar_ventana']);
 const MANUALES = new Set(['audio_estado', 'audio_asignar_microfono', 'navegador_abrir', 'navegador_youtube', 'navegador_elegir', 'navegador_video', 'navegador_clic', 'navegador_escribir', 'navegador_tecla', 'navegador_leer', 'navegador_cerrar', 'buscar', 'abrir_web', 'hora_y_fecha', 'info_del_sistema', 'bloquear_pc', 'estado_del_dispositivo', 'memoria_consultar', 'temporizador', 'cambiar_color_orbe', 'cambiar_avatar', 'copiar_al_portapapeles']); // solo se ejecutan si TÚ los asignas en «Añadir»; el programa no te ofrece aprenderlos solo
-const MULTILINEA = new Set(['info_del_sistema', 'audio_estado', 'memoria_consultar', 'estado_del_dispositivo', 'navegador_leer']); // estas dicen varias líneas, no solo la primera
+const MULTILINEA = new Set(['audio_en_uso', 'info_del_sistema', 'audio_estado', 'memoria_consultar', 'estado_del_dispositivo', 'navegador_leer']); // estas dicen varias líneas, no solo la primera
 const FILL_ATAJO = new Set(['radex', 'oye', 'hey', 'ok', 'por', 'favor', 'porfa', 'puedes', 'podrias', 'quiero', 'que', 'me', 'lo', 'la', 'el', 'un', 'una', 'ahora', 'ya', 'pues', 'eh', 'gracias', 'si']);
 const SECRETO_ATAJO = /(contrase|password|token|clave|gsk_|AIza|\d{9,})/i;
 const FALLO_NATIVO = /^(No pude|No encontr|No permitido|Esta acción|Acción de PC|Error|Herramienta desconocida|Falta|Necesito)/i;
@@ -1655,11 +1655,11 @@ const CATALOGO = [
   { cat: 'Volumen del PC', tools: ['ajustar_volumen'], ej: ['Sube el volumen', 'Baja el volumen', 'Pon el volumen en 37', 'Déjalo al 80 por ciento', 'Silencia', 'Quita el silencio', '¿Qué volumen tengo?'] },
   { cat: 'Volumen por aplicación', tools: ['audio_volumen_app'], ej: ['Baja el volumen de Spotify', 'Pon Discord al 30', 'Silencia Chrome'] },
   { cat: 'Micrófono', tools: ['audio_cambiar_microfono', 'audio_microfono_volumen', 'audio_asignar_microfono'], ej: ['Cámbiate al micrófono de la laptop', 'Escúchame con el micrófono externo', 'Silencia el micrófono', 'Silencia el micrófono por 30 segundos', 'Sube el micrófono', 'El Realtek es el de la laptop'] },
-  { cat: 'Estado y deshacer', tools: ['audio_en_uso', 'audio_silenciados', 'audio_reactivar_todo', 'audio_volver_anterior', 'audio_estado'], ej: ['¿Qué audio estoy usando?', '¿Qué micrófonos tengo?', '¿Qué está silenciado?', 'Reactiva todo', 'Regrésame al micrófono de antes'] },
+  { cat: 'Estado y deshacer', tools: ['audio_silenciados', 'audio_reactivar_todo', 'audio_volver_anterior', 'audio_estado'], ej: ['¿Qué micrófonos tengo?', '¿Qué está silenciado?', 'Reactiva todo', 'Regrésame al micrófono de antes'] },
   { cat: 'Energía', tools: ['energia_cambiar_plan', 'energia_planes'], ej: ['Cambia el plan de energía a alto rendimiento', 'Pon el modo gamer', '¿En qué plan de energía estoy?'] },
   { cat: 'Multimedia y navegador', tools: ['control_multimedia', 'navegador_abrir', 'navegador_youtube', 'navegador_elegir', 'navegador_video', 'navegador_clic', 'navegador_escribir', 'navegador_tecla', 'navegador_leer', 'navegador_cerrar', 'buscar', 'abrir_web'], ej: ['Pausa', 'Siguiente canción', 'Pon música en YouTube', 'Busca recetas en Google'] },
   { cat: 'Aplicaciones y ventanas', tools: ['abrir_aplicacion', 'abrir_carpeta', 'controlar_ventana'], ej: ['Abre la calculadora', 'Abre la carpeta de descargas', 'Minimiza Chrome'] },
-  { cat: 'Sistema', tools: ['hora_y_fecha', 'info_del_sistema', 'bloquear_pc', 'estado_del_dispositivo'], ej: ['Dame las especificaciones del PC', '¿Cuánta RAM tengo?', 'Bloquea el PC', '¿Qué hora es?'] },
+  { cat: 'Sistema', tools: ['audio_en_uso', 'hora_y_fecha', 'info_del_sistema', 'bloquear_pc', 'estado_del_dispositivo'], ej: ['¿Qué audio estoy usando?', '¿Qué micrófono uso?', 'Dame las especificaciones del PC', '¿Cuánta RAM tengo?', 'Bloquea el PC', '¿Qué hora es?'] },
   { cat: 'Memoria y atajos', tools: ['memoria_consultar'], nota: 'Consultar la memoria sí se puede asignar. «Recuerda que…», «Olvida…» y los atajos con «¿qué atajos tienes?» llevan un texto distinto cada vez, así que los entiende el cerebro y no se pueden fijar como atajo.', ej: ['Recuerda que …', '¿Qué recuerdas?', 'Olvida …', '¿Qué atajos tienes?', 'Olvida el atajo …'] },
   { cat: 'Utilidades', tools: ['temporizador', 'cambiar_color_orbe', 'cambiar_avatar', 'copiar_al_portapapeles'], ej: ['Pon un temporizador de 5 minutos', 'Cambia el color a verde', 'Cambia el avatar a mujer', 'Copia esto al portapapeles'] },
   { cat: 'Control de Radex', tools: ['ctl_dormir', 'ctl_despertar'], ej: ['(las inventas tú: por ejemplo «desactívate» para dormirlo y «despierta» para despertarlo)'] },
@@ -1764,7 +1764,9 @@ const PLANTILLAS = [
   ['Control de Radex', 'Despertarse', 'ctl_despertar', {}],
   ['Estado y deshacer', 'Decir qué dispositivos de audio hay y cuáles suenan (salida)', 'audio_estado', { direccion: 'salida' }],
   ['Estado y deshacer', 'Decir qué micrófonos hay (entrada)', 'audio_estado', { direccion: 'entrada' }],
-  ['Estado y deshacer', 'Decir qué audio uso (salida y micrófono)', 'audio_en_uso', { cual: 'ambos' }],
+  ['Sistema', 'Decir qué audio de salida y qué micrófono tengo en uso', 'audio_en_uso', { cual: 'ambos' }],
+  ['Sistema', 'Decir solo qué audio de salida tengo en uso', 'audio_en_uso', { cual: 'salida' }],
+  ['Sistema', 'Decir solo qué micrófono tengo en uso', 'audio_en_uso', { cual: 'entrada' }],
   ['Estado y deshacer', 'Decir qué está silenciado', 'audio_silenciados', { cual: 'ambos' }],
   ['Estado y deshacer', 'Reactivar todo', 'audio_reactivar_todo', {}],
   ['Estado y deshacer', 'Volver a la salida de antes', 'audio_volver_anterior', { cual: 'salida' }],
