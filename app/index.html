@@ -1605,6 +1605,22 @@ function gestionarAtajos(text) { // «¿qué atajos tienes?» / «olvida el ataj
   }
   return null;
 }
+function primeraFrase(t) { return String(t || '').trim().split(/(?<=[.!?])\s+/)[0].slice(0, 260); }
+function mensajeAtajoRegistro(out) { // lo que dicen en voz alta las herramientas de audio cuando algo NO salió (antes se perdía en silencio): null = que lo resuelva el cerebro
+  let m = String(out || '').match(/^FALLÓ:\s*([\s\S]*)/);
+  if (m) {
+    let t = m[1].trim();
+    t = t.replace(/^No encuentro (los audífonos inalámbricos|los auriculares con cable|los parlantes de la laptop) entre los dispositivos activos\.[\s\S]*/, (x, c) =>
+      /inal/.test(c) ? 'No tienes audífonos inalámbricos conectados en este momento.' : /cable/.test(c) ? 'No tienes auriculares con cable conectados en este momento.' : 'No encuentro los altavoces de la laptop entre los dispositivos activos.');
+    t = t.replace(/^No veo (.+?) entre los micrófonos activos[\s\S]*/, (x, c) => 'No veo ' + c + ' conectado en este momento.');
+    return primeraFrase(t) || 'No pude hacerlo.';
+  }
+  m = String(out || '').match(/^HECHO PERO SIN VERIFICAR:\s*([\s\S]*)/);
+  if (m) return primeraFrase(m[1]) || 'Lo pedí, pero no pude comprobarlo.';
+  m = String(out || '').match(/^AMBIGUO:[\s\S]*?Opciones:\s*([\s\S]*?)\.\s*No se ejecut/);
+  if (m) return 'Coincide con varios dispositivos: ' + m[1].split('|').map((x) => x.trim()).join(', ') + '. No hice nada; usa el nombre exacto.';
+  return null;
+}
 async function ejecutarAtajo(hit) { // devuelve lo que hay que decir, o null para que lo resuelva el cerebro
   if (hit.t === 'ctl_dormir' || hit.t === 'ctl_despertar') return controlAtajo(hit);
   const t = [...ALL_TOOLS, ...REG_TOOLS].find((x) => x.name === hit.t);
@@ -1618,6 +1634,7 @@ async function ejecutarAtajo(hit) { // devuelve lo que hay que decir, o null par
   const r = resultadoAccion(hit.t, out);
   if (r === 'pend') { const rs = pendingConfirm && pendingConfirm.resumen; if (pendingConfirm) pendingConfirm.ask = false; hit.n = (hit.n | 0) + 1; guardarAtajos(); return preguntaConfirmacion(rs); }
   if (r === 'ok') { hit.n = (hit.n | 0) + 1; hit.x = 0; guardarAtajos(); const lin = out.replace(/^VERIFICADO:\s*/, '').split('\n').map((l) => l.trim()).filter(Boolean); return (MULTILINEA.has(hit.t) ? lin.slice(0, 8).join('. ').slice(0, 700) : (lin[0] || '').slice(0, 300)) || 'Listo.'; }
+  if (REG_TOOLS.some((x) => x.name === hit.t)) { const dicho = mensajeAtajoRegistro(out); if (dicho) return dicho; } // un dispositivo desconectado no es un atajo roto: se avisa y el atajo se conserva
   hit.x = (hit.x | 0) + 1; // falló: el cerebro lo resuelve; si falla 2 veces seguidas, se olvida el atajo
   if (hit.x >= 2) { ATAJOS.items = ATAJOS.items.filter((i) => i !== hit); guardarAtajos(); }
   return null;
@@ -1675,24 +1692,24 @@ const PLANTILLAS = [
   ['Salida de sonido', 'Quitar el silencio a la salida en uso', 'audio_salida_volumen', { accion: 'activar_sonido' }],
   ['Salida de sonido', 'Silenciar los altavoces de la laptop (internos)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'laptop' }],
   ['Salida de sonido', 'Quitar el silencio a los altavoces de la laptop (internos)', 'audio_salida_volumen', { accion: 'activar_sonido', dispositivo: 'laptop' }],
-  ['Salida de sonido', 'Silenciar los auriculares con cable', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'auriculares' }],
-  ['Salida de sonido', 'Quitar el silencio a los auriculares con cable', 'audio_salida_volumen', { accion: 'activar_sonido', dispositivo: 'auriculares' }],
-  ['Salida de sonido', 'Silenciar los audífonos inalámbricos (Corsair)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'inalambricos' }],
-  ['Salida de sonido', 'Quitar el silencio a los audífonos inalámbricos (Corsair)', 'audio_salida_volumen', { accion: 'activar_sonido', dispositivo: 'inalambricos' }],
+  ['Salida de sonido', 'Silenciar cualquier audífono con cable (jack)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'auriculares' }],
+  ['Salida de sonido', 'Quitar el silencio a cualquier audífono con cable (jack)', 'audio_salida_volumen', { accion: 'activar_sonido', dispositivo: 'auriculares' }],
+  ['Salida de sonido', 'Silenciar cualquier audífono inalámbrico (Bluetooth, Corsair…)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'inalambricos' }],
+  ['Salida de sonido', 'Quitar el silencio a cualquier audífono inalámbrico (Bluetooth, Corsair…)', 'audio_salida_volumen', { accion: 'activar_sonido', dispositivo: 'inalambricos' }],
   ['Salida de sonido', 'Silenciar otro dispositivo (escribe parte del nombre)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: '$' }, 'texto'],
   ['Salida de sonido', 'Quitar el silencio a otro dispositivo (escribe parte del nombre)', 'audio_salida_volumen', { accion: 'activar_sonido', dispositivo: '$' }, 'texto'],
   ['Salida de sonido', 'Silenciar la salida en uso por CUALQUIER tiempo (una sola orden: el tiempo lo dices al hablar, en segundos, minutos u horas)', 'audio_salida_volumen', { accion: 'silenciar', segundos: '$' }, 'variable'],
   ['Salida de sonido', 'Silenciar los altavoces de la laptop por CUALQUIER tiempo (el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'laptop', segundos: '$' }, 'variable'],
-  ['Salida de sonido', 'Silenciar los auriculares con cable por CUALQUIER tiempo (el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'auriculares', segundos: '$' }, 'variable'],
-  ['Salida de sonido', 'Silenciar los audífonos inalámbricos (Corsair) por CUALQUIER tiempo (el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'inalambricos', segundos: '$' }, 'variable'],
+  ['Salida de sonido', 'Silenciar cualquier audífono con cable (jack) por CUALQUIER tiempo (el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'auriculares', segundos: '$' }, 'variable'],
+  ['Salida de sonido', 'Silenciar cualquier audífono inalámbrico (Bluetooth, Corsair…) por CUALQUIER tiempo (el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'inalambricos', segundos: '$' }, 'variable'],
   ['Salida de sonido', 'Silenciar otro dispositivo por CUALQUIER tiempo (escribe parte del nombre; el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: '@', segundos: '$' }, 'variable-texto'],
   ['Salida de sonido', 'Pasar el sonido a los altavoces de la laptop', 'audio_cambiar_dispositivo', { dispositivo: 'laptop' }],
-  ['Salida de sonido', 'Pasar el sonido a los auriculares con cable', 'audio_cambiar_dispositivo', { dispositivo: 'auriculares' }],
-  ['Salida de sonido', 'Pasar el sonido a los audífonos inalámbricos (Corsair)', 'audio_cambiar_dispositivo', { dispositivo: 'inalambricos' }],
+  ['Salida de sonido', 'Pasar el sonido a cualquier audífono con cable (jack)', 'audio_cambiar_dispositivo', { dispositivo: 'auriculares' }],
+  ['Salida de sonido', 'Pasar el sonido a cualquier audífono inalámbrico (Bluetooth, Corsair…)', 'audio_cambiar_dispositivo', { dispositivo: 'inalambricos' }],
   ['Salida de sonido', 'Pasar el sonido a otro dispositivo (escribe parte del nombre)', 'audio_cambiar_dispositivo', { dispositivo: '$' }, 'texto'],
   ['Salida de sonido', 'Volumen de los altavoces de la laptop (internos) en CUALQUIER porcentaje, 0 a 100 (el número lo dices al hablar)', 'audio_salida_volumen', { accion: 'establecer', dispositivo: 'laptop', porcentaje: '$' }, 'variable'],
-  ['Salida de sonido', 'Volumen de los auriculares con cable en CUALQUIER porcentaje, 0 a 100 (el número lo dices al hablar)', 'audio_salida_volumen', { accion: 'establecer', dispositivo: 'auriculares', porcentaje: '$' }, 'variable'],
-  ['Salida de sonido', 'Volumen de los audífonos inalámbricos (Corsair) en CUALQUIER porcentaje, 0 a 100 (el número lo dices al hablar)', 'audio_salida_volumen', { accion: 'establecer', dispositivo: 'inalambricos', porcentaje: '$' }, 'variable'],
+  ['Salida de sonido', 'Volumen de cualquier audífono con cable (jack) en CUALQUIER porcentaje, 0 a 100 (el número lo dices al hablar)', 'audio_salida_volumen', { accion: 'establecer', dispositivo: 'auriculares', porcentaje: '$' }, 'variable'],
+  ['Salida de sonido', 'Volumen de cualquier audífono inalámbrico (Bluetooth, Corsair…) en CUALQUIER porcentaje, 0 a 100 (el número lo dices al hablar)', 'audio_salida_volumen', { accion: 'establecer', dispositivo: 'inalambricos', porcentaje: '$' }, 'variable'],
   ['Salida de sonido', 'Volumen de otro dispositivo en CUALQUIER porcentaje, 0 a 100 (escribe parte del nombre; el número lo dices al hablar)', 'audio_salida_volumen', { accion: 'establecer', dispositivo: '@', porcentaje: '$' }, 'variable-texto'],
   ['Micrófono', 'Usar el micrófono de la laptop', 'audio_cambiar_microfono', { dispositivo: 'laptop' }],
   ['Micrófono', 'Usar el micrófono externo (ETHOS 101)', 'audio_cambiar_microfono', { dispositivo: 'externo' }],
