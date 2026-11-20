@@ -1449,6 +1449,8 @@ function similares(a, b) { // casi idéntica: mismas cifras y al menos 90 % de p
 const NUM_PALABRAS = { cero: 0, uno: 1, un: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5, seis: 6, siete: 7, ocho: 8, nueve: 9, diez: 10, once: 11, doce: 12, trece: 13, catorce: 14, quince: 15, dieciseis: 16, diecisiete: 17, dieciocho: 18, diecinueve: 19, veinte: 20, veintiuno: 21, veintiun: 21, veintidos: 22, veintitres: 23, veinticuatro: 24, veinticinco: 25, veintiseis: 26, veintisiete: 27, veintiocho: 28, veintinueve: 29, treinta: 30, cuarenta: 40, cincuenta: 50, sesenta: 60, setenta: 70, ochenta: 80, noventa: 90, cien: 100 };
 const esNumPalabra = (w) => Object.prototype.hasOwnProperty.call(NUM_PALABRAS, w);
 const NUM_RELLENO = new Set(['ciento', 'porciento', 'porcentaje']);
+const UNIDADES = { segundo: 1, segundos: 1, seg: 1, segs: 1, minuto: 60, minutos: 60, min: 60, mins: 60, hora: 3600, horas: 3600 };
+const esUnidad = (w) => Object.prototype.hasOwnProperty.call(UNIDADES, w);
 function plantillaNumero(k) { // «pon volumen en 51» -> { tpl: 'pon volumen en #', n: 51 }; entiende cifras y palabras («cincuenta y cinco»)
   const w = String(k).split(' ').filter((x) => x && !NUM_RELLENO.has(x));
   for (let i = 0; i < w.length; i++) {
@@ -1458,8 +1460,13 @@ function plantillaNumero(k) { // «pon volumen en 51» -> { tpl: 'pon volumen en
       n = NUM_PALABRAS[w[i]]; len = 1;
       if (n >= 30 && n <= 90 && w[i + 1] === 'y' && esNumPalabra(w[i + 2] || '') && NUM_PALABRAS[w[i + 2]] >= 1 && NUM_PALABRAS[w[i + 2]] <= 9) { n += NUM_PALABRAS[w[i + 2]]; len = 3; }
     }
-    if (len) return { n, tpl: [...w.slice(0, i), '#', ...w.slice(i + len)].join(' ') };
+    if (len) {
+      let mult = 1; if (esUnidad(w[i + len] || '')) { mult = UNIDADES[w[i + len]]; len++; } // «30 segundos», «2 minutos»
+      return { n, mult, tpl: [...w.slice(0, i), '#', ...w.slice(i + len)].join(' ') };
+    }
   }
+  const u = w.findIndex(esUnidad); // «por un minuto», «una hora»: sin número delante = 1
+  if (u >= 0) return { n: 1, mult: UNIDADES[w[u]], tpl: [...w.slice(0, u), '#', ...w.slice(u + 1)].join(' ') };
   return null;
 }
 const esVariable = (x) => !!x && typeof x.f === 'string' && x.f.includes('#') && !!x.a && Object.values(x.a).includes('$');
@@ -1473,9 +1480,13 @@ function buscarAtajo(text) {
   const fijo = ATAJOS.items.find((x) => !esVariable(x) && similares(k, x.f));
   if (fijo) return fijo;
   const pn = plantillaNumero(k);
-  if (pn && pn.n >= 0 && pn.n <= 100) {
+  if (pn) {
     const v = ATAJOS.items.find((x) => !x.r && esVariable(x) && similares(sinVerbos(pn.tpl), sinVerbos(x.f)));
-    if (v) { v._num = pn.n; return v; }
+    if (v) {
+      const tiempo = claveVar(v) === 'segundos'; // orden de tiempo: lo dicho se pasa a segundos (hasta 12 horas; el temporizador, hasta 24)
+      const val = tiempo ? Math.round(pn.n * pn.mult) : pn.n, mn = tiempo ? 1 : 0, mx = tiempo ? (v.t === 'temporizador' ? 86400 : 43200) : 100;
+      if (val >= mn && val <= mx) { v._num = val; return v; }
+    }
   }
   return null;
 }
@@ -1656,6 +1667,11 @@ const CATALOGO = [
 ];
 // [categoría, descripción, herramienta, argumentos ('$' = lo que escribas), tipo de dato que pide]
 const PLANTILLAS = [
+  ['Salida de sonido', 'Silenciar la salida en uso por CUALQUIER tiempo (una sola orden: el tiempo lo dices al hablar, en segundos, minutos u horas)', 'audio_salida_volumen', { accion: 'silenciar', segundos: '$' }, 'variable'],
+  ['Salida de sonido', 'Silenciar los altavoces de la laptop por CUALQUIER tiempo (el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'laptop', segundos: '$' }, 'variable'],
+  ['Salida de sonido', 'Silenciar los auriculares con cable por CUALQUIER tiempo (el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'auriculares', segundos: '$' }, 'variable'],
+  ['Salida de sonido', 'Silenciar los audífonos inalámbricos (Corsair) por CUALQUIER tiempo (el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'inalambricos', segundos: '$' }, 'variable'],
+  ['Salida de sonido', 'Silenciar otro dispositivo por CUALQUIER tiempo (escribe parte del nombre; el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: '@', segundos: '$' }, 'variable-texto'],
   ['Salida de sonido', 'Pasar el sonido a los altavoces de la laptop', 'audio_cambiar_dispositivo', { dispositivo: 'laptop' }],
   ['Salida de sonido', 'Pasar el sonido a los auriculares con cable', 'audio_cambiar_dispositivo', { dispositivo: 'auriculares' }],
   ['Salida de sonido', 'Pasar el sonido a los audífonos inalámbricos (Corsair)', 'audio_cambiar_dispositivo', { dispositivo: 'inalambricos' }],
@@ -1670,6 +1686,8 @@ const PLANTILLAS = [
   ['Micrófono', 'Enseñarle cuál micrófono es el de la laptop (escribe parte del nombre que le da Windows)', 'audio_asignar_microfono', { dispositivo: '$', rol: 'laptop' }, 'texto'],
   ['Micrófono', 'Enseñarle cuál micrófono es el externo (escribe parte del nombre que le da Windows)', 'audio_asignar_microfono', { dispositivo: '$', rol: 'externo' }, 'texto'],
   ['Micrófono', 'Enseñarle cuál micrófono es el de los audífonos (escribe parte del nombre que le da Windows)', 'audio_asignar_microfono', { dispositivo: '$', rol: 'auriculares' }, 'texto'],
+  ['Micrófono', 'Silenciar el micrófono en uso por CUALQUIER tiempo (una sola orden: el tiempo lo dices al hablar, en segundos, minutos u horas)', 'audio_microfono_volumen', { accion: 'silenciar', segundos: '$' }, 'variable'],
+  ['Micrófono', 'Silenciar un micrófono concreto por CUALQUIER tiempo (escribe laptop, externo, auriculares, todos o parte del nombre; el tiempo lo dices al hablar)', 'audio_microfono_volumen', { accion: 'silenciar', dispositivo: '@', segundos: '$' }, 'variable-texto'],
   ['Micrófono', 'Silenciar el micrófono en uso', 'audio_microfono_volumen', { accion: 'silenciar' }],
   ['Micrófono', 'Activar el micrófono en uso', 'audio_microfono_volumen', { accion: 'activar_sonido' }],
   ['Micrófono', 'Subir el micrófono', 'audio_microfono_volumen', { accion: 'subir' }],
@@ -1736,6 +1754,7 @@ const PLANTILLAS = [
   ['Memoria y atajos', 'Decir todo lo que recuerda', 'memoria_consultar', {}],
   ['Memoria y atajos', 'Buscar en la memoria (escribe qué)', 'memoria_consultar', { busqueda: '$' }, 'texto'],
   ['Utilidades', 'Poner un temporizador (escribe los minutos; para segundos usa decimales, p. ej. 0.5 = 30 s)', 'temporizador', { segundos: '$', etiqueta: 'Tiempo cumplido' }, 'minutos'],
+  ['Utilidades', 'Poner un temporizador de CUALQUIER tiempo (una sola orden: el tiempo lo dices al hablar, en segundos, minutos u horas)', 'temporizador', { segundos: '$', etiqueta: 'Tiempo cumplido' }, 'variable'],
   ['Utilidades', 'Cambiar el color de la interfaz (escribe: cian, azul, verde, rojo, morado, naranja, rosa, amarillo o blanco)', 'cambiar_color_orbe', { color: '$' }, 'texto'],
   ['Utilidades', 'Cambiar el avatar a orbe', 'cambiar_avatar', { avatar: 'orbe' }],
   ['Utilidades', 'Cambiar el avatar a mujer (holograma)', 'cambiar_avatar', { avatar: 'mujer' }],
@@ -1754,10 +1773,10 @@ const PLANTILLAS = [
 const ORD_CATS = CATALOGO.map((c) => c.cat); PLANTILLAS.sort((a, b) => ORD_CATS.indexOf(a[0]) - ORD_CATS.indexOf(b[0])); // (orden estable)
 const TOOL_CAT = {}; CATALOGO.forEach((c) => c.tools.forEach((t) => { TOOL_CAT[t] = c.cat; }));
 function descAtajo(x) {
-  const p = PLANTILLAS.filter((q) => q[2] === x.t && Object.entries(q[3]).every(([k, v]) => v === '$' || v === '@' ? x.a && x.a[k] != null : x.a && String(x.a[k]) === String(v))).sort((a, b) => Object.keys(b[3]).length - Object.keys(a[3]).length)[0];
+  const p = PLANTILLAS.filter((q) => q[2] === x.t && (esVariable(x) === String(q[4] || '').startsWith('variable')) && Object.entries(q[3]).every(([k, v]) => v === '$' || v === '@' ? x.a && x.a[k] != null : x.a && String(x.a[k]) === String(v))).sort((a, b) => Object.keys(b[3]).length - Object.keys(a[3]).length)[0];
   if (!p) return x.t + ' ' + JSON.stringify(x.a || {});
   const dato = Object.entries(p[3]).find(([, v]) => v === '$');
-  return p[1].replace(/ \((?:escribe|una sola orden|el número)[^)]*\)/g, '').replace(', 0 a 100', '').replace('CUALQUIER', 'cualquier') + (dato ? (x.a[dato[0]] === '$' ? '' : ': ' + (p[4] === 'minutos' ? (x.a[dato[0]] / 60) + ' min' : x.a[dato[0]])) : '') + (() => { const q = Object.entries(p[3]).find(([, v]) => v === '@'); return q ? ' (' + x.a[q[0]] + ')' : ''; })();
+  return p[1].replace(/ \((?:escribe|una sola orden|el número|el tiempo)[^)]*\)/g, '').replace(', 0 a 100', '').replace('CUALQUIER', 'cualquier') + (dato ? (x.a[dato[0]] === '$' ? '' : ': ' + (p[4] === 'minutos' ? (x.a[dato[0]] / 60) + ' min' : x.a[dato[0]])) : '') + (() => { const q = Object.entries(p[3]).find(([, v]) => v === '@'); return q ? ' (' + x.a[q[0]] + ')' : ''; })();
 }
 const RES_TXT = { atajo: ['Atajo ✓', 'ok'], cerebro: ['Entendida', 'ok'], silencio: ['El cerebro la ignoró', 'no'], 'no-orden': ['No parecía orden', 'no'], ruido: ['Ruido', 'no'], ignorada: ['Ignorada', 'no'] };
 let ordTab = 'conocidas', ordFiltro = 'todas', memCache = null, ordCat = '';
@@ -1810,7 +1829,7 @@ function pintarOrd() {
 (function initOrd() {
   const sel = $('#ordAccion'); let cat = '', g = null;
   PLANTILLAS.forEach((p, i) => { if (p[0] !== cat) { cat = p[0]; g = document.createElement('optgroup'); g.label = cat; sel.appendChild(g); } g.appendChild(new Option(p[1], String(i))); });
-  const pintaParam = () => { const p = PLANTILLAS[+sel.value]; $('#ordParam').hidden = !p[4] || p[4] === 'variable'; $('#ordMsg').textContent = String(p[4] || '').startsWith('variable') ? 'Escribe la frase con un número de ejemplo, p. ej. «pon el volumen en 50». Ese número se cambia por el que digas cada vez.' : ''; $('#ordParam').type = ['numero', 'minutos'].includes(p[4]) ? 'number' : 'text'; $('#ordParam').step = p[4] === 'minutos' ? 'any' : '1'; $('#ordParam').placeholder = p[4] === 'numero' ? '0 a 100' : p[4] === 'minutos' ? 'minutos' : 'nombre o texto'; };
+  const pintaParam = () => { const p = PLANTILLAS[+sel.value]; $('#ordParam').hidden = !p[4] || p[4] === 'variable'; $('#ordMsg').textContent = String(p[4] || '').startsWith('variable') ? (p[3].segundos === '$' ? 'Escribe la frase con un tiempo de ejemplo, p. ej. «silencia el micrófono por 30 segundos». Ese tiempo se cambia por el que digas cada vez (segundos, minutos u horas).' : 'Escribe la frase con un número de ejemplo, p. ej. «pon el volumen en 50». Ese número se cambia por el que digas cada vez.') : ''; $('#ordParam').type = ['numero', 'minutos'].includes(p[4]) ? 'number' : 'text'; $('#ordParam').step = p[4] === 'minutos' ? 'any' : '1'; $('#ordParam').placeholder = p[4] === 'numero' ? '0 a 100' : p[4] === 'minutos' ? 'minutos' : 'nombre o texto'; };
   sel.onchange = pintaParam; pintaParam();
   document.querySelectorAll('#ord .tab').forEach((b) => { b.onclick = () => { ordTab = b.dataset.t; if (ordTab === 'memoria') memCache = null; pintarOrd(); }; });
   $('#ordBtn').onclick = () => { ordTab = 'conocidas'; memCache = null; $('#ord').showModal(); pintarOrd(); };
@@ -1823,7 +1842,7 @@ function pintarOrd() {
     if (SECRETO_ATAJO.test(frase)) return msg('Esa frase tiene algo que parece una clave o un número largo; no la guardo.');
     if (String(p[4] || '').startsWith('variable')) { // una sola orden para cualquier número
       const pn = plantillaNumero(k);
-      if (!pn) return msg('Escribe la frase con un número de ejemplo, p. ej. «pon el volumen en 50». Ese número se cambiará por el que digas.');
+      if (!pn) return msg(p[3].segundos === '$' ? 'Escribe la frase con un tiempo de ejemplo, p. ej. «silencia el micrófono por 30 segundos». Ese tiempo se cambiará por el que digas.' : 'Escribe la frase con un número de ejemplo, p. ej. «pon el volumen en 50». Ese número se cambiará por el que digas.');
       const av = JSON.parse(JSON.stringify(p[3]));
       if (p[4] === 'variable-texto') {
         const nom = $('#ordParam').value.trim(); if (!nom) return msg('Falta el nombre (del dispositivo o de la aplicación, o parte del nombre).');
@@ -1832,7 +1851,7 @@ function pintarOrd() {
       ATAJOS.items = ATAJOS.items.filter((x) => !(esVariable(x) && x.t === p[2] && sinNum(x) === sinNum({ a: av }) && similares(sinVerbos(pn.tpl), sinVerbos(x.f))));
       ATAJOS.items.push({ f: pn.tpl, t: p[2], a: av, n: 0, c: Math.floor(Date.now() / 1000) });
       guardarAtajos(); $('#ordFrase').value = ''; $('#ordParam').value = '';
-      return msg('Listo: «' + fraseAtajo({ f: pn.tpl }) + '» funciona con cualquier número de 0 a 100. Ejemplo: «' + pn.tpl.replace('#', '73') + '».');
+      return msg(p[3].segundos === '$' ? 'Listo: «' + fraseAtajo({ f: pn.tpl }).replace('[número]', '[tiempo]') + '» funciona con cualquier tiempo. Ejemplos: «' + pn.tpl.replace('#', '30 segundos') + '», «' + pn.tpl.replace('#', '2 minutos') + '», «' + pn.tpl.replace('#', '1 hora') + '».' : 'Listo: «' + fraseAtajo({ f: pn.tpl }) + '» funciona con cualquier número de 0 a 100. Ejemplo: «' + pn.tpl.replace('#', '73') + '».');
     }
     const a = JSON.parse(JSON.stringify(p[3]));
     if (p[4]) {
