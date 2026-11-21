@@ -137,7 +137,7 @@ async function audioLogicTests() {
   check('audio_estado responde VERIFICADO', r.ok && r.verified && r.text.startsWith('VERIFICADO'), r.text);
   check('nombra el dispositivo y su volumen', /altavoces de la laptop, volumen 45%/.test(r.mensaje) && !/Realtek/.test(r.mensaje), r.mensaje);
   check('dice qué app está sonando', /Sonando ahora: Spotify \(70%\)/.test(r.mensaje), r.mensaje);
-  check('avisa del dispositivo silenciado', /auriculares con cable \(volumen 80%, SILENCIADO\)/.test(r.mensaje), r.mensaje);
+  check('avisa del dispositivo silenciado', /altavoces externos \(volumen 80%, SILENCIADO\)/.test(r.mensaje), r.mensaje);
   check('pide el comando fijo audio.leer del módulo audio', llamadas[0].cmd === 'audio.leer' && llamadas[0].opts.module === 'audio' && llamadas[0].args.direccion === 'salida');
   r = await reg.invoke('audio_estado', { direccion: 'micro' });
   check('rechaza una dirección no válida', !r.ok);
@@ -219,7 +219,7 @@ async function audioControlTests() {
   const cambios = () => calls.filter((c) => c.cmd === 'audio.app' || c.cmd === 'audio.dispositivo').length;
 
   let r = await reg.invoke('audio_volumen_app', { app: 'spotify', accion: 'bajar' });
-  check('baja Spotify 10 puntos y lo verifica', r.ok && r.verified && st.apps[0].volumen === 60 && /70% → 60%/.test(r.mensaje), r.text);
+  check('baja Spotify 10 puntos y lo verifica', r.ok && r.verified && st.apps[0].volumen === 60 && /Volumen de .* al 60%/.test(r.mensaje) && !/70%|→/.test(r.mensaje), r.text);
   r = await reg.invoke('audio_volumen_app', { app: 'Spotify', accion: 'establecer', porcentaje: 25 });
   check('establece Spotify al 25 %', r.ok && r.verified && st.apps[0].volumen === 25, r.text);
   r = await reg.invoke('audio_volumen_app', { app: 'spotify', accion: 'subir', paso: 90 });
@@ -254,7 +254,7 @@ async function audioControlTests() {
   check('cambiar de dispositivo se hace directo (sin confirmación) y se verifica', r.ok && r.verified && !r.pending && st.devs[0].predeterminado && !st.devs[1].predeterminado && cambios() === c1 + 1, r.text);
   check('dice «Se ha cambiado a altavoces de la laptop.»', /^VERIFICADO: Se ha cambiado a altavoces de la laptop\./.test(r.text), r.text);
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'auriculares' });
-  check('auriculares con cable → «Se ha cambiado a auriculares con cable.»', r.verified && st.devs[1].predeterminado && /Se ha cambiado a auriculares con cable\./.test(r.text), r.text);
+  check('por cable → «Se ha cambiado a altavoces externos.»', r.verified && st.devs[1].predeterminado && /Se ha cambiado a altavoces externos\./.test(r.text), r.text);
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'parlantes' });
   check('alias "parlantes" → laptop', r.verified && st.devs[0].predeterminado && !st.devs[1].predeterminado, r.text);
   r = await reg.invoke('audio_cambiar_dispositivo', { dispositivo: 'altavoces' });
@@ -336,7 +336,7 @@ async function audioControlTests() {
   st.mics[0].predeterminado = true; st.mics[0].volumen = 80; st.mics[0].silenciado = false;
   const c4 = cambios();
   r = await reg.invoke('audio_microfono_volumen', { accion: 'bajar' });
-  check('micrófono: baja el volumen 10 puntos y lo verifica', r.ok && r.verified && st.mics[0].volumen === 70 && /70%/.test(r.mensaje) && /antes 80%/.test(r.mensaje), r.text);
+  check('micrófono: baja el volumen 10 puntos y lo verifica', r.ok && r.verified && st.mics[0].volumen === 70 && /al 70%/.test(r.mensaje) && !/antes|80%/.test(r.mensaje), r.text);
   r = await reg.invoke('audio_microfono_volumen', { accion: 'subir', paso: 50 });
   check('micrófono: subir nunca pasa de 100', r.verified && st.mics[0].volumen === 100, String(st.mics[0].volumen));
   r = await reg.invoke('audio_microfono_volumen', { accion: 'establecer', porcentaje: 35 });
