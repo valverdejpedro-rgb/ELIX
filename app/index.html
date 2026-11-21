@@ -198,9 +198,11 @@
     <div class="pane" data-t="anadir" id="ordP3" hidden>
       <p class="m">Enséñale una frase nueva (por ejemplo, cómo te sale cuando hablas lejos del micrófono) y elige qué debe hacer. Se ejecuta al instante, sin gastar tokens y sin decir «Radex».</p>
       <div class="fila"><label for="ordFrase">Cuando yo diga</label><input type="text" id="ordFrase" placeholder="ej.: pon los parlantes" autocomplete="off"></div>
+      <p class="m" id="ordEdit" hidden></p>
+      <div class="fila"><label for="ordCategoria">Categoría</label><select id="ordCategoria"></select></div>
       <div class="fila"><label for="ordBuscar">Buscar acción</label><input type="search" id="ordBuscar" placeholder="ej.: silenciar, micrófono, hora, youtube…" autocomplete="off"></div>
       <div class="fila"><label for="ordAccion">Quiero que haga</label><select id="ordAccion"></select><input type="text" id="ordParam" hidden autocomplete="off"></div>
-      <div class="btns"><button type="button" class="mini" id="ordGuardar">Guardar orden</button></div>
+      <div class="btns"><button type="button" class="mini" id="ordGuardar">Guardar orden</button><button type="button" class="mini" id="ordCancelar" hidden>Cancelar edición</button></div>
       <p class="m" id="ordMsg"></p>
     </div>
     <div class="pane" data-t="oido" id="ordP2" hidden></div>
@@ -1431,7 +1433,7 @@ async function askLLM(msgs, tools) {
 /* ---------- Atajos aprendidos: las órdenes que ya funcionaron se ejecutan sin llamar al cerebro (0 tokens) ---------- */
 const ATAJOS = { items: [], on: !!window.elixAtajos };
 if (window.elixAtajos) window.elixAtajos.load().then((l) => { ATAJOS.items = Array.isArray(l) ? l : []; }).catch(() => {});
-const guardarAtajos = () => { try { window.elixAtajos && window.elixAtajos.save(ATAJOS.items); } catch {} };
+const guardarAtajos = () => { try { return window.elixAtajos ? Promise.resolve(window.elixAtajos.save(ATAJOS.items)).catch(() => false) : Promise.resolve(false); } catch { return Promise.resolve(false); } }; // devuelve true si quedó en el disco
 // Solo acciones con resultado comprobable; nunca memoria, diagnóstico, bloqueo del PC ni información libre
 const DIRECTO = new Set(['energia_cambiar_plan', 'energia_planes', 'audio_cambiar_dispositivo', 'audio_cambiar_microfono', 'audio_microfono_volumen', 'audio_salida_volumen', 'audio_silenciados', 'audio_reactivar_todo', 'audio_volver_anterior', 'audio_en_uso']); // su resultado se dice tal cual
 // ¿El paso quedó hecho y comprobado? (las herramientas verificadas solo valen con VERIFICADO; las demás, si no empiezan con un fallo)
@@ -1625,8 +1627,8 @@ function mensajeAtajoRegistro(out) { // lo que dicen en voz alta las herramienta
   let m = String(out || '').match(/^FALLÓ:\s*([\s\S]*)/);
   if (m) {
     let t = m[1].trim();
-    t = t.replace(/^No encuentro (los audífonos inalámbricos|los auriculares con cable|los parlantes de la laptop) entre los dispositivos activos\.[\s\S]*/, (x, c) =>
-      /inal/.test(c) ? 'No tienes audífonos inalámbricos conectados en este momento.' : /cable/.test(c) ? 'No tienes auriculares con cable conectados en este momento.' : 'No encuentro los altavoces de la laptop entre los dispositivos activos.');
+    t = t.replace(/^No encuentro (los audífonos inalámbricos|los altavoces externos|los parlantes de la laptop) entre los dispositivos activos\.[\s\S]*/, (x, c) =>
+      /inal/.test(c) ? 'No tienes audífonos inalámbricos conectados en este momento.' : /externos/.test(c) ? 'No tienes altavoces externos conectados en este momento.' : 'No encuentro los altavoces de la laptop entre los dispositivos activos.');
     t = t.replace(/^No veo (.+?) entre los micrófonos activos[\s\S]*/, (x, c) => 'No veo ' + c + ' conectado en este momento.');
     return primeraFrase(t) || 'No pude hacerlo.';
   }
@@ -1707,23 +1709,23 @@ const PLANTILLAS = [
   ['Salida de sonido', 'Quitar el silencio a la salida en uso', 'audio_salida_volumen', { accion: 'activar_sonido' }],
   ['Salida de sonido', 'Silenciar los altavoces de la laptop (internos)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'laptop' }],
   ['Salida de sonido', 'Quitar el silencio a los altavoces de la laptop (internos)', 'audio_salida_volumen', { accion: 'activar_sonido', dispositivo: 'laptop' }],
-  ['Salida de sonido', 'Silenciar cualquier audífono con cable (jack)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'auriculares' }],
-  ['Salida de sonido', 'Quitar el silencio a cualquier audífono con cable (jack)', 'audio_salida_volumen', { accion: 'activar_sonido', dispositivo: 'auriculares' }],
+  ['Salida de sonido', 'Silenciar los altavoces externos (por cable)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'auriculares' }],
+  ['Salida de sonido', 'Quitar el silencio a los altavoces externos (por cable)', 'audio_salida_volumen', { accion: 'activar_sonido', dispositivo: 'auriculares' }],
   ['Salida de sonido', 'Silenciar cualquier audífono inalámbrico (Bluetooth, Corsair…)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'inalambricos' }],
   ['Salida de sonido', 'Quitar el silencio a cualquier audífono inalámbrico (Bluetooth, Corsair…)', 'audio_salida_volumen', { accion: 'activar_sonido', dispositivo: 'inalambricos' }],
   ['Salida de sonido', 'Silenciar otro dispositivo (escribe parte del nombre)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: '$' }, 'texto'],
   ['Salida de sonido', 'Quitar el silencio a otro dispositivo (escribe parte del nombre)', 'audio_salida_volumen', { accion: 'activar_sonido', dispositivo: '$' }, 'texto'],
   ['Salida de sonido', 'Silenciar la salida en uso por CUALQUIER tiempo (una sola orden: el tiempo lo dices al hablar, en segundos, minutos u horas)', 'audio_salida_volumen', { accion: 'silenciar', segundos: '$' }, 'variable'],
   ['Salida de sonido', 'Silenciar los altavoces de la laptop por CUALQUIER tiempo (el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'laptop', segundos: '$' }, 'variable'],
-  ['Salida de sonido', 'Silenciar cualquier audífono con cable (jack) por CUALQUIER tiempo (el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'auriculares', segundos: '$' }, 'variable'],
+  ['Salida de sonido', 'Silenciar los altavoces externos (por cable) por CUALQUIER tiempo (el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'auriculares', segundos: '$' }, 'variable'],
   ['Salida de sonido', 'Silenciar cualquier audífono inalámbrico (Bluetooth, Corsair…) por CUALQUIER tiempo (el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: 'inalambricos', segundos: '$' }, 'variable'],
   ['Salida de sonido', 'Silenciar otro dispositivo por CUALQUIER tiempo (escribe parte del nombre; el tiempo lo dices al hablar)', 'audio_salida_volumen', { accion: 'silenciar', dispositivo: '@', segundos: '$' }, 'variable-texto'],
   ['Salida de sonido', 'Pasar el sonido a los altavoces de la laptop', 'audio_cambiar_dispositivo', { dispositivo: 'laptop' }],
-  ['Salida de sonido', 'Pasar el sonido a cualquier audífono con cable (jack)', 'audio_cambiar_dispositivo', { dispositivo: 'auriculares' }],
+  ['Salida de sonido', 'Pasar el sonido a los altavoces externos (por cable)', 'audio_cambiar_dispositivo', { dispositivo: 'auriculares' }],
   ['Salida de sonido', 'Pasar el sonido a cualquier audífono inalámbrico (Bluetooth, Corsair…)', 'audio_cambiar_dispositivo', { dispositivo: 'inalambricos' }],
   ['Salida de sonido', 'Pasar el sonido a otro dispositivo (escribe parte del nombre)', 'audio_cambiar_dispositivo', { dispositivo: '$' }, 'texto'],
   ['Salida de sonido', 'Volumen de los altavoces de la laptop (internos) en CUALQUIER porcentaje, 0 a 100 (el número lo dices al hablar)', 'audio_salida_volumen', { accion: 'establecer', dispositivo: 'laptop', porcentaje: '$' }, 'variable'],
-  ['Salida de sonido', 'Volumen de cualquier audífono con cable (jack) en CUALQUIER porcentaje, 0 a 100 (el número lo dices al hablar)', 'audio_salida_volumen', { accion: 'establecer', dispositivo: 'auriculares', porcentaje: '$' }, 'variable'],
+  ['Salida de sonido', 'Volumen de los altavoces externos (por cable) en CUALQUIER porcentaje, 0 a 100 (el número lo dices al hablar)', 'audio_salida_volumen', { accion: 'establecer', dispositivo: 'auriculares', porcentaje: '$' }, 'variable'],
   ['Salida de sonido', 'Volumen de cualquier audífono inalámbrico (Bluetooth, Corsair…) en CUALQUIER porcentaje, 0 a 100 (el número lo dices al hablar)', 'audio_salida_volumen', { accion: 'establecer', dispositivo: 'inalambricos', porcentaje: '$' }, 'variable'],
   ['Salida de sonido', 'Volumen de otro dispositivo en CUALQUIER porcentaje, 0 a 100 (escribe parte del nombre; el número lo dices al hablar)', 'audio_salida_volumen', { accion: 'establecer', dispositivo: '@', porcentaje: '$' }, 'variable-texto'],
   ['Micrófono', 'Usar el micrófono de la laptop', 'audio_cambiar_microfono', { dispositivo: 'laptop' }],
@@ -1822,8 +1824,11 @@ const PLANTILLAS = [
 ];
 const ORD_CATS = CATALOGO.map((c) => c.cat); PLANTILLAS.sort((a, b) => ORD_CATS.indexOf(a[0]) - ORD_CATS.indexOf(b[0])); // (orden estable)
 const TOOL_CAT = {}; CATALOGO.forEach((c) => c.tools.forEach((t) => { TOOL_CAT[t] = c.cat; }));
+function plantillaDe(x) { // la plantilla de «Añadir» a la que corresponde una orden guardada
+  return PLANTILLAS.filter((q) => q[2] === x.t && (esVariable(x) === String(q[4] || '').startsWith('variable')) && Object.entries(q[3]).every(([k, v]) => v === '$' || v === '@' ? x.a && x.a[k] != null : x.a && String(x.a[k]) === String(v))).sort((a, b) => Object.keys(b[3]).length - Object.keys(a[3]).length)[0];
+}
 function descAtajo(x) {
-  const p = PLANTILLAS.filter((q) => q[2] === x.t && (esVariable(x) === String(q[4] || '').startsWith('variable')) && Object.entries(q[3]).every(([k, v]) => v === '$' || v === '@' ? x.a && x.a[k] != null : x.a && String(x.a[k]) === String(v))).sort((a, b) => Object.keys(b[3]).length - Object.keys(a[3]).length)[0];
+  const p = plantillaDe(x);
   if (!p) return x.t + ' ' + JSON.stringify(x.a || {});
   const dato = Object.entries(p[3]).find(([, v]) => v === '$');
   return p[1].replace(/ \((?:escribe|una sola orden|el número|el tiempo)[^)]*\)/g, '').replace(', 0 a 100', '').replace('CUALQUIER', 'cualquier') + (dato ? (x.a[dato[0]] === '$' ? '' : ': ' + (p[4] === 'minutos' ? (x.a[dato[0]] / 60) + ' min' : x.a[dato[0]])) : '') + (() => { const q = Object.entries(p[3]).find(([, v]) => v === '@'); return q ? ' (' + x.a[q[0]] + ')' : ''; })();
@@ -1837,7 +1842,7 @@ function pintarOrd() {
     const us = ATAJOS.items.filter((x) => !x.r), bloq = ATAJOS.items.filter((x) => x.r);
     let h = ATAJOS.on ? '' : '<p class="m">Los atajos solo funcionan en la app de escritorio.</p>';
     if (STRICT.on) h += '<p class="m"><b>Modo «solo mis órdenes» activo:</b> solo funcionan las que aparecen abajo como «→». Los ejemplos en gris son de lo que entiende el cerebro y en este modo no se usan.</p>';
-    const fila = (x, uso) => '<div class="it"><span>«' + esc(fraseAtajo(x)) + '» → ' + esc(descAtajo(x)) + (uso ? ' <small>(' + (x.n | 0) + ' usos)</small>' : '') + '</span><button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Quitar</button></div>';
+    const fila = (x, uso) => '<div class="it"><span>«' + esc(fraseAtajo(x)) + '» → ' + esc(descAtajo(x)) + (uso ? ' <small>(' + (x.n | 0) + ' usos)</small>' : '') + '</span><span style="display:flex;gap:6px;flex:none">' + (plantillaDe(x) ? '<button class="mini" data-e="' + ATAJOS.items.indexOf(x) + '">Editar</button>' : '') + '<button class="mini" data-q="' + ATAJOS.items.indexOf(x) + '">Quitar</button></span></div>';
     const qC = normText($('#ordBuscarC').value);
     const coincide = (t) => !qC || qC.split(' ').every((w) => normText(t).includes(w));
     const etiq = (q) => q[1].replace(/ \((?:escribe|una sola orden|el número|el tiempo)[^)]*\)/g, '').replace(', 0 a 100', '').replace('CUALQUIER', 'cualquier');
@@ -1847,7 +1852,7 @@ function pintarOrd() {
       const ej = todo ? c.ej : c.ej.filter(coincide), mi = todo ? mios : mios.filter((x) => coincide(fraseAtajo(x) + ' ' + descAtajo(x)));
       const ac = qC ? PLANTILLAS.filter((q) => q[0] === c.cat && (todo || coincide(q[1]))) : [];
       if (qC && !ej.length && !mi.length && !ac.length) return;
-      entradas.push({ k: c.cat, n: mios.length, b: (c.nota ? '<p class="m"><b>Nota:</b> ' + esc(c.nota) + '</p>' : '')
+      entradas.push({ k: c.cat, n: mios.length, b: (PLANTILLAS.some((q) => q[0] === c.cat) ? '<p class="m"><button class="mini" data-add="' + esc(c.cat) + '">+ Añadir una orden en esta categoría</button></p>' : '') + (c.nota ? '<p class="m"><b>Nota:</b> ' + esc(c.nota) + '</p>' : '')
         + (ej.length ? '<p class="m">Ejemplos que entiende (con otras palabras también): ' + ej.map((e) => '«' + esc(e) + '»').join(' · ') + '</p>' : '')
         + (ac.length ? '<p class="m"><b>Acciones que puedes asignar en «Añadir»:</b></p>' + ac.map((q) => '<div class="it"><span>' + esc(etiq(q)) + '</span></div>').join('') : '')
         + mi.map((x) => fila(x, true)).join('') });
@@ -1864,6 +1869,8 @@ function pintarOrd() {
     });
     $('#ordP1').innerHTML = h;
     $('#ordP1').querySelectorAll('[data-c]').forEach((b) => { b.onclick = () => { ordCat = ordCat === b.dataset.c ? '' : b.dataset.c; pintarOrd(); }; });
+    $('#ordP1').querySelectorAll('[data-add]').forEach((b) => { b.onclick = () => { if (anadirEnFn) anadirEnFn(b.dataset.add); }; });
+    $('#ordP1').querySelectorAll('[data-e]').forEach((b) => { b.onclick = () => { if (editarAtajoFn) editarAtajoFn(ATAJOS.items[+b.dataset.e]); }; });
     $('#ordP1').querySelectorAll('[data-q]').forEach((b) => { b.onclick = () => { ATAJOS.items.splice(+b.dataset.q, 1); guardarAtajos(); pintarOrd(); }; });
   } else if (ordTab === 'oido') {
     const sel = FRASES.items.filter((f) => ordFiltro === 'todas' || (ordFiltro === 'ok' ? (f.r === 'atajo' || f.r === 'cerebro') : !(f.r === 'atajo' || f.r === 'cerebro')));
@@ -1923,12 +1930,14 @@ function pintarOrd() {
   $('#usoClose').onclick = () => dlg.close();
   dlg.addEventListener('close', parar);
 })();
+let editarAtajoFn = null, anadirEnFn = null;
 (function initOrd() {
-  const sel = $('#ordAccion'); let cat = '', g = null;
+  const sel = $('#ordAccion'); let cat = '', g = null, editando = null;
   const pintaParam = () => { const p = sel.value === '' ? null : PLANTILLAS[+sel.value]; if (!p) { $('#ordParam').hidden = true; return; } $('#ordParam').hidden = !p[4] || p[4] === 'variable'; $('#ordMsg').textContent = String(p[4] || '').startsWith('variable') ? (p[3].segundos === '$' ? 'Escribe la frase con un tiempo de ejemplo, p. ej. «silencia el micrófono por 30 segundos». Ese tiempo se cambia por el que digas cada vez (segundos, minutos u horas).' : 'Escribe la frase con un número de ejemplo, p. ej. «pon el volumen en 50». Ese número se cambia por el que digas cada vez.') : ''; $('#ordParam').type = ['numero', 'minutos'].includes(p[4]) ? 'number' : 'text'; $('#ordParam').step = p[4] === 'minutos' ? 'any' : '1'; $('#ordParam').placeholder = p[4] === 'numero' ? '0 a 100' : p[4] === 'minutos' ? 'minutos' : 'nombre o texto'; };
   const llena = () => { // lista de acciones, filtrada por lo que escribas en «Buscar acción» (categoría o texto)
-    const q = normText($('#ordBuscar').value), previo = sel.value; sel.innerHTML = ''; let c2 = '', g2 = null, n = 0;
+    const q = normText($('#ordBuscar').value), cs = $('#ordCategoria').value, previo = sel.value; sel.innerHTML = ''; let c2 = '', g2 = null, n = 0;
     PLANTILLAS.forEach((p, i) => {
+      if (cs && p[0] !== cs) return;
       if (q && !q.split(' ').every((w) => normText(p[0] + ' ' + p[1]).includes(w))) return;
       if (p[0] !== c2) { c2 = p[0]; g2 = document.createElement('optgroup'); g2.label = c2; sel.appendChild(g2); }
       g2.appendChild(new Option(p[1], String(i))); n++;
@@ -1937,8 +1946,23 @@ function pintarOrd() {
     else if ([...sel.options].some((o) => o.value === previo)) sel.value = previo;
     pintaParam();
   };
-  $('#ordBuscar').oninput = llena;
+  const csel = $('#ordCategoria'); csel.appendChild(new Option('(todas las categorías)', '')); [...new Set(PLANTILLAS.map((p) => p[0]))].forEach((c) => csel.appendChild(new Option(c, c)));
+  $('#ordBuscar').oninput = llena; csel.onchange = llena;
   sel.onchange = pintaParam; llena();
+  const finEdicion = () => { editando = null; $('#ordEdit').hidden = true; $('#ordCancelar').hidden = true; };
+  $('#ordCancelar').onclick = () => { finEdicion(); $('#ordFrase').value = ''; $('#ordParam').value = ''; $('#ordMsg').textContent = ''; pintaParam(); };
+  anadirEnFn = (c) => { finEdicion(); $('#ord .tab[data-t=anadir]').click(); $('#ordBuscar').value = ''; csel.value = c; llena(); $('#ordFrase').value = ''; $('#ordParam').value = ''; $('#ordMsg').textContent = ''; $('#ordFrase').focus(); }; // «+ Añadir una orden en esta categoría»
+  editarAtajoFn = (x) => { // «Editar» en la lista: carga la orden en «Añadir» para cambiarle la frase, el dato o la acción
+    const p = plantillaDe(x); if (!p || !x) return;
+    editando = x;
+    $('#ord .tab[data-t=anadir]').click();
+    $('#ordBuscar').value = ''; csel.value = p[0]; llena(); sel.value = String(PLANTILLAS.indexOf(p)); pintaParam();
+    $('#ordFrase').value = esVariable(x) ? String(x.f).replace('#', claveVar(x) === 'segundos' ? '30 segundos' : '50') : x.f;
+    const kv = Object.entries(p[3]).find(([, v]) => v === '@') || (p[4] === 'variable' ? null : Object.entries(p[3]).find(([, v]) => v === '$'));
+    $('#ordParam').value = kv ? String(p[4] === 'minutos' ? x.a[kv[0]] / 60 : x.a[kv[0]]) : '';
+    $('#ordEdit').textContent = 'Editando «' + fraseAtajo(x) + '»: cambia lo que quieras y pulsa «Guardar orden» (reemplaza la anterior), o «Cancelar edición».'; $('#ordEdit').hidden = false; $('#ordCancelar').hidden = false;
+    $('#ordMsg').textContent = '';
+  };
   document.querySelectorAll('#ord .tab').forEach((b) => { b.onclick = () => { ordTab = b.dataset.t; if (ordTab === 'memoria') memCache = null; pintarOrd(); }; });
   $('#ordBtn').onclick = () => { ordTab = 'conocidas'; memCache = null; $('#ord').showModal(); pintarOrd(); };
   $('#ordBuscarC').oninput = pintarOrd;
@@ -1946,6 +1970,15 @@ function pintarOrd() {
   $('#ordGuardar').onclick = () => {
     const msg = (t) => { $('#ordMsg').textContent = t; };
     if (!ATAJOS.on) return msg('Los atajos solo funcionan en la app de escritorio.');
+    const quitarSimilares = (cond) => { const fuera = ATAJOS.items.filter((x) => cond(x) && x !== editando); ATAJOS.items = ATAJOS.items.filter((x) => !cond(x)); return fuera; };
+    const aviso = (fuera) => fuera.length ? ' Reemplacé ' + (fuera.length === 1 ? 'una orden que sonaba igual' : fuera.length + ' órdenes que sonaban igual') + ': ' + fuera.map((y) => '«' + fraseAtajo(y) + '»').join(', ') + '.' : '';
+    const agregar = (item) => { // añade la orden (o reemplaza la que se está editando) y avisa si no quedó en el disco
+      if (editando) { item.n = editando.n | 0; ATAJOS.items = ATAJOS.items.filter((y) => y !== editando); }
+      const editada = !!editando; ordCat = TOOL_CAT[item.t] || ordCat;
+      ATAJOS.items.push(item); finEdicion();
+      guardarAtajos().then((ok) => { if (!ok) $('#ordMsg').textContent = '⚠ No pude guardarla en el disco: funciona hasta que cierres Radex. Cierra y abre el programa; si sigue igual, dímelo.'; });
+      return editada;
+    };
     const frase = $('#ordFrase').value.trim(), p = sel.value === '' ? null : PLANTILLAS[+sel.value], k = claveAtajo(frase);
     if (!p) return msg('No hay ninguna acción elegida: borra la búsqueda o elige otra de la lista.');
     if (!k || k.split(' ').length > 12 || frase.length > 140) return msg('Escribe una frase corta (hasta 12 palabras).');
@@ -1958,10 +1991,9 @@ function pintarOrd() {
         const nom = $('#ordParam').value.trim(); if (!nom) return msg('Falta el nombre (del dispositivo o de la aplicación, o parte del nombre).');
         Object.keys(av).forEach((q) => { if (av[q] === '@') av[q] = nom; });
       }
-      ATAJOS.items = ATAJOS.items.filter((x) => !(esVariable(x) && x.t === p[2] && sinNum(x) === sinNum({ a: av }) && similares(sinVerbos(pn.tpl), sinVerbos(x.f))));
-      ATAJOS.items.push({ f: pn.tpl, t: p[2], a: av, n: 0, c: Math.floor(Date.now() / 1000) });
-      guardarAtajos(); $('#ordFrase').value = ''; $('#ordParam').value = '';
-      return msg(p[3].segundos === '$' ? 'Listo: «' + fraseAtajo({ f: pn.tpl }).replace('[número]', '[tiempo]') + '» funciona con cualquier tiempo. Ejemplos: «' + pn.tpl.replace('#', '30 segundos') + '», «' + pn.tpl.replace('#', '2 minutos') + '», «' + pn.tpl.replace('#', '1 hora') + '».' : 'Listo: «' + fraseAtajo({ f: pn.tpl }) + '» funciona con cualquier número de 0 a 100. Ejemplo: «' + pn.tpl.replace('#', '73') + '».');
+      const fuera = quitarSimilares((x) => esVariable(x) && x.t === p[2] && sinNum(x) === sinNum({ a: av }) && similares(sinVerbos(pn.tpl), sinVerbos(x.f)));
+      const editada = agregar({ f: pn.tpl, t: p[2], a: av, n: 0, c: Math.floor(Date.now() / 1000) }); $('#ordFrase').value = ''; $('#ordParam').value = '';
+      return msg(((editada ? 'Orden actualizada. ' : '') + aviso(fuera) + ' ' + (p[3].segundos === '$' ? 'Listo: «' + fraseAtajo({ f: pn.tpl }).replace('[número]', '[tiempo]') + '» funciona con cualquier tiempo. Ejemplos: «' + pn.tpl.replace('#', '30 segundos') + '», «' + pn.tpl.replace('#', '2 minutos') + '», «' + pn.tpl.replace('#', '1 hora') + '».' : 'Listo: «' + fraseAtajo({ f: pn.tpl }) + '» funciona con cualquier número de 0 a 100. Ejemplo: «' + pn.tpl.replace('#', '73') + '».')).replace(/\s+/g, ' ').trim());
     }
     const a = JSON.parse(JSON.stringify(p[3]));
     if (p[4]) {
@@ -1971,10 +2003,9 @@ function pintarOrd() {
       if (p[4] === 'minutos') { val = Math.round(parseFloat(String(v).replace(',', '.')) * 60); if (!(val >= 1 && val <= 86400)) return msg('Escribe entre 0.1 y 1440 minutos.'); }
       Object.keys(a).forEach((q) => { if (a[q] === '$') a[q] = val; });
     }
-    ATAJOS.items = ATAJOS.items.filter((x) => !similares(k, x.f));
-    ATAJOS.items.push({ f: k, t: p[2], a, n: 0, c: Math.floor(Date.now() / 1000) });
-    guardarAtajos(); $('#ordFrase').value = ''; $('#ordParam').value = '';
-    msg('Listo: al decir «' + k + '» haré: ' + descAtajo(ATAJOS.items[ATAJOS.items.length - 1]) + '. Funciona aunque no digas «Radex».');
+    const fuera = quitarSimilares((x) => !esVariable(x) && similares(k, x.f));
+    const editada = agregar({ f: k, t: p[2], a, n: 0, c: Math.floor(Date.now() / 1000) }); $('#ordFrase').value = ''; $('#ordParam').value = '';
+    msg((editada ? 'Orden actualizada. ' : '') + 'Listo: al decir «' + k + '» haré: ' + descAtajo(ATAJOS.items[ATAJOS.items.length - 1]) + '. Funciona aunque no digas «Radex».' + aviso(fuera));
   };
   $('#ordExport').onclick = () => {
     let t = 'ÓRDENES DE RADEX\n\n';
