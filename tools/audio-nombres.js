@@ -89,12 +89,12 @@ function categoriaSalida(nombre) {
   if (/altavo(?:z|ces)|speaker|parlante|bocina/.test(n) && !/hdmi|nvidia|displayport|monitor|digital|spdif|usb/.test(n)) return 'laptop';
   return null;
 }
-const ETIQUETA_SALIDA = { inalambrico: 'los audífonos inalámbricos', cable: 'los auriculares con cable', laptop: 'los parlantes de la laptop' };
+const ETIQUETA_SALIDA = { inalambrico: 'los audífonos inalámbricos', cable: 'los altavoces externos', laptop: 'los parlantes de la laptop' };
 function etiquetaSalida(dev) {
   const nombre = (dev && dev.nombre) || '', c = categoriaSalida(nombre);
   if (c === 'laptop') return 'altavoces de la laptop';
   if (c === 'inalambrico') return 'audífonos inalámbricos';
-  if (c === 'cable') return 'auriculares con cable';
+  if (c === 'cable') return 'altavoces externos';
   if (/hdmi|displayport|nvidia|monitor|digital|spdif/.test(norm(nombre))) return 'la salida del monitor';
   return 'otro dispositivo de salida';
 }

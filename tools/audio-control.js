@@ -16,7 +16,7 @@ const ALIAS_DEV = { parlantes: 'altavoces', bocinas: 'altavoces', speakers: 'alt
 //  - laptop: los parlantes/altavoces de la laptop. Se revisan en ese orden (“audífonos inalámbricos” gana a “audífonos”).
 const CATEGORIAS = [
   { id: 'inalambrico', pide: /inalambric|wireless|bluetooth|corsair|airpods|buds|\bbt\b/, incluye: /corsair|wireless|bluetooth|hands.?free|airpods|buds|inalambric|\bbt\b/, excluye: null, nombre: 'los audífonos inalámbricos' },
-  { id: 'cable', pide: /auricular|audifono|casco|headphone|headset/, incluye: /auricular|headphone|audifono|headset/, excluye: /corsair|wireless|bluetooth|hands.?free|airpods|buds|inalambric|\bbt\b/, nombre: 'los auriculares con cable' },
+  { id: 'cable', pide: /auricular|audifono|casco|headphone|headset/, incluye: /auricular|headphone|audifono|headset/, excluye: /corsair|wireless|bluetooth|hands.?free|airpods|buds|inalambric|\bbt\b/, nombre: 'los altavoces externos' },
   { id: 'laptop', pide: /laptop|portatil|computadora|compu|\bpc\b|altavoz|altavoces|parlante|bocina|speaker/, incluye: /altavo(?:z|ces)|speaker|parlante|bocina/, excluye: /corsair|wireless|bluetooth|hands.?free|hdmi|nvidia|displayport|monitor|digital|spdif|usb|airpods|buds/, nombre: 'los parlantes de la laptop' },
 ];
 const SECUNDARIOS = /chat|comunicaci|voz|voice|mic|llamada/; // endpoints de “chat” de un mismo dispositivo: se prefieren los demás
@@ -96,7 +96,7 @@ module.exports = function registerAudioControl(registry, bridge) {
       const okMute = r.silencio < 0 || (ahora.length > 0 && ahora.every((x) => x.silenciada === (r.silencio === 1)));
       const vol = ahora.length ? Math.max(...ahora.map((x) => (x.volumen == null ? 0 : x.volumen))) : null;
       const partes = [];
-      if (r.objetivo != null) partes.push(`Volumen de ${r.nombre}: ${r.actual}% → ${vol == null ? r.objetivo : vol}%`);
+      if (r.objetivo != null) partes.push(`Volumen de ${r.nombre} al ${vol == null ? r.objetivo : vol}%`);
       if (r.silencio === 1) partes.push(`${r.nombre} quedó silenciada`);
       if (r.silencio === 0) partes.push(`${r.nombre} ya tiene sonido otra vez`);
       if (okVol && okMute) return { ok: true, verified: true, mensaje: partes.join('. ') + '.' };
@@ -454,8 +454,8 @@ module.exports = function registerAudioControl(registry, bridge) {
           const okMute = r.silencio < 0 || (!!ahora && ahora.silenciado === (r.silencio === 1));
           if (!(okVol && okMute)) todoOk = false;
           if (okVol && o.nivel != null && !o.restaurar && r.silencio < 0) recordarVol(o.id, ahora.volumen == null ? o.nivel : ahora.volumen, o.nombre); // ajuste hecho a propósito: es el nuevo volumen a recordar
-          if (o.restaurar) partes.push(`Volumen de ${o.nombre} restaurado al ${ahora && ahora.volumen != null ? ahora.volumen : o.nivel}% (había cambiado a ${o.actual}%)`);
-          else if (o.nivel != null) partes.push(r.enUso && entrada ? `El micrófono en uso (${o.nombre}) está ahora al ${ahora && ahora.volumen != null ? ahora.volumen : o.nivel}% (antes ${o.actual}%)` : `Volumen de ${o.nombre}: ${o.actual}% → ${ahora && ahora.volumen != null ? ahora.volumen : o.nivel}%`);
+          if (o.restaurar) partes.push(`Volumen de ${o.nombre} restaurado al ${ahora && ahora.volumen != null ? ahora.volumen : o.nivel}%`);
+          else if (o.nivel != null) partes.push(r.enUso && entrada ? `El micrófono en uso (${o.nombre}) está ahora al ${ahora && ahora.volumen != null ? ahora.volumen : o.nivel}%` : `Volumen de ${o.nombre} al ${ahora && ahora.volumen != null ? ahora.volumen : o.nivel}%`);
         }
         const lista = obj.map((o) => o.nombre).join(', ');
         const sujeto = entrada ? 'Micrófono' : 'Salida', silenciado = entrada ? 'silenciado' : 'silenciada', activado = entrada ? 'activado' : 'activada';
